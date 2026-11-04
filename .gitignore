@@ -33,6 +33,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# banco de dados local (contém PII — nunca versionar)
+db/
+*.db
+*.db-journal
+
 # vercel
 .vercel
 
@@ -50,5 +55,7 @@ test
 prompt
 
 server.log
+# backup tar do repositório
+disparo-emails
 # Skills directory
 /skills/
