@@ -69,7 +69,7 @@ export default function ProcessoDetalhePage() {
   const [dataDialog, setDataDialog] = useState<{ name: string; fields: { label: string; value: string }[] } | null>(null)
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/admin/processes/${id}`)
+    const res = await fetch(`/api/admin/processes/${id}`, { cache: 'no-store' })
     if (res.status === 404) return
     if (res.status === 401) return
     const data = await res.json()

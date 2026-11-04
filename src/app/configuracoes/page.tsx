@@ -39,7 +39,7 @@ export default function ConfiguracoesPage() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetch('/api/admin/settings')
+      const res = await fetch('/api/admin/settings', { cache: 'no-store' })
       const data = await res.json()
       setS(data.settings)
       setTestEmail(data.settings?.smtpUser || '')

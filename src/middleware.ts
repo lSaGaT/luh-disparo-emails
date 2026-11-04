@@ -7,12 +7,22 @@ export async function middleware(request: NextRequest) {
 
   if (!user) {
     if (request.nextUrl.pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+      const res = NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+      // Sem no-store o navegador pode guardar esse 401 e responder as
+      // próximas chamadas direto do cache — o painel volta ao login em
+      // loop mesmo com a sessão válida.
+      res.headers.set('Cache-Control', 'no-store')
+      return res
     }
     const loginUrl = new URL('/login', request.url)
-    return NextResponse.redirect(loginUrl)
+    const res = NextResponse.redirect(loginUrl)
+    res.headers.set('Cache-Control', 'no-store')
+    return res
   }
-  return NextResponse.next()
+
+  const res = NextResponse.next()
+  res.headers.set('Cache-Control', 'no-store')
+  return res
 }
 
 export const config = {

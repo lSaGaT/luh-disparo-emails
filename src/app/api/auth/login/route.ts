@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import bcrypt from 'bcryptjs'
-import { createSessionToken, SESSION_COOKIE } from '@/lib/auth'
+import { createSessionToken, sessionCookieOptions, SESSION_COOKIE } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
 
   const token = await createSessionToken({ id: user.id, email: user.email, name: user.name })
   const res = NextResponse.json({ ok: true })
-  res.cookies.set(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 86400, path: '/' })
+  res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(request.headers.get('host')))
+  res.headers.set('Cache-Control', 'no-store')
   return res
 }

@@ -16,7 +16,7 @@ export default function ModeloPage() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetch('/api/admin/template')
+      const res = await fetch('/api/admin/template', { cache: 'no-store' })
       const data = await res.json()
       setTemplate(data.template || '')
     })()

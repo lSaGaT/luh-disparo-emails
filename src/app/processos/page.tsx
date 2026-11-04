@@ -27,7 +27,7 @@ export default function ProcessosPage() {
 
   useEffect(() => {
     const load = async () => {
-      const res = await fetch('/api/admin/processes')
+      const res = await fetch('/api/admin/processes', { cache: 'no-store' })
       if (res.status === 401) {
         router.replace('/login')
         return

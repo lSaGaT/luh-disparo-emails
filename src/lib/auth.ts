@@ -9,6 +9,36 @@ export type SessionUser = {
   name: string
 }
 
+/** Opções do cookie de sessão adaptadas ao contexto de acesso.
+ *
+ * Quando o painel é acessado por um domínio real (ex.: link de preview, servido
+ * dentro de um iframe de outro domínio), o navegador só aceita/guarda o cookie
+ * se ele for `SameSite=None; Secure; Partitioned` — com `SameSite=Lax` o cookie
+ * é descartado em contexto cross-site e o usuário volta para o login em loop.
+ * Em localhost/IP (acesso HTTP direto) mantemos `Lax`, que funciona normalmente.
+ */
+export function sessionCookieOptions(hostHeader: string | null): {
+  httpOnly: boolean
+  sameSite: 'lax' | 'none'
+  secure: boolean
+  partitioned: boolean
+  maxAge: number
+  path: string
+} {
+  const host = (hostHeader || '').toLowerCase().split(':')[0]
+  const isLocal =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
+
+  if (isLocal) {
+    return { httpOnly: true, sameSite: 'lax', secure: false, partitioned: false, maxAge: 7 * 86400, path: '/' }
+  }
+  // Domínio real: sempre servido por HTTPS (gateway/proxy), precisa cross-site.
+  return { httpOnly: true, sameSite: 'none', secure: true, partitioned: true, maxAge: 7 * 86400, path: '/' }
+}
+
 function getSecret(): Uint8Array {
   const secret = process.env.AUTH_SECRET || 'dev-secret-insecure-change-me'
   return new TextEncoder().encode(secret)

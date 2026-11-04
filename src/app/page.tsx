@@ -27,7 +27,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch('/api/admin/stats')
+        const res = await fetch('/api/admin/stats', { cache: 'no-store' })
         if (res.status === 401) {
           router.replace('/login')
           return

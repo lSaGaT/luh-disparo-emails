@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -9,7 +8,6 @@ import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function LoginPage() {
-  const router = useRouter()
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -19,15 +17,17 @@ export default function LoginPage() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetch('/api/auth/me')
+      const res = await fetch('/api/auth/me', { cache: 'no-store' })
       const data = await res.json()
       if (data.user) {
-        router.replace('/')
+        // Navegação dura: garante que o cookie recém-definido/reexistente seja
+        // considerado sem depender do cache do roteador.
+        window.location.replace('/')
         return
       }
       setNeedsSetup(data.needsSetup)
     })()
-  }, [router])
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,14 +39,16 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(needsSetup ? { name, email, password } : { email, password }),
+        cache: 'no-store',
       })
       const data = await res.json()
       if (!res.ok) {
         setError(data.error || 'Não foi possível entrar.')
         return
       }
-      router.replace('/')
-      router.refresh()
+      // Recarga completa: o cookie de sessão acaba de ser definido e uma
+      // navegação client-side pode carregar estado em cache do painel.
+      window.location.replace('/')
     } finally {
       setLoading(false)
     }
