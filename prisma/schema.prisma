@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Settings {
+  id                String   @id @default("singleton")
+  // SMTP (Gmail)
+  smtpHost          String   @default("smtp.gmail.com")
+  smtpPort          Int      @default(465)
+  smtpUser          String?
+  smtpPass          String?
+  smtpFromName      String   @default("Central de Documentos")
+  // Autentique
+  autentiqueToken   String?
+  // Dados do assinante administrador (dono do sistema)
+  adminSignerName   String?
+  adminSignerEmail  String?
+  adminSignerCpf    String?
+  // Asaas
+  asaasApiKey       String?
+  asaasEnv          String   @default("sandbox") // sandbox | producao
+  // Geral
+  appUrl            String?
+  queueDelaySeconds Int      @default(20)
+  pollMinutes       Int      @default(5)
+  contractTemplate  String?
+  updatedAt         DateTime @updatedAt
+}
+
+model Process {
+  id            String      @id @default(cuid())
+  name          String
+  referenceDate String // data de referência para ajudar a identificar
+  amount        Float?
+  dueDate       String?
+  description   String?
+  formFields    String // JSON: lista de chaves de campos coletados no form
+  status        String      @default("rascunho") // rascunho | disparando | pausado
+  createdAt     DateTime    @default(now())
+  recipients    Recipient[]
+}
+
+model Recipient {
+  id              String    @id @default(cuid())
+  processId       String
+  process         Process   @relation(fields: [processId], references: [id], onDelete: Cascade)
+  name            String
+  email           String
+  token           String    @unique @default(cuid())
+  // fila | form_enviado | form_recebido | contrato_enviado | assinado | pagamento_enviado | pago | erro
+  status          String    @default("fila")
+  stage           String? // etapa onde falhou: form | contract | sign | payment
+  error           String?
+  // formulário
+  formData        String? // JSON com os campos preenchidos
+  submittedAt     DateTime?
+  // Autentique
+  autentiqueDocId String?
+  signUrl         String?
+  adminSigned     Boolean   @default(false)
+  contractSentAt  DateTime?
+  signedAt        DateTime?
+  copySentAt      DateTime?
+  generatedPdfB64 String?
+  signedPdfB64    String?
+  // Asaas
+  asaasCustomerId String?
+  asaasPaymentId  String?
+  paymentUrl      String?
+  paymentSentAt   DateTime?
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model EmailLog {
+  id          String   @id @default(cuid())
+  recipientId String?
+  to          String
+  subject     String
+  kind        String // form | contract | copy | payment | paid | test
+  ok          Boolean
+  error       String?
+  createdAt   DateTime @default(now())
+}
+
+model WebhookLog {
+  id        String   @id @default(cuid())
+  source    String // autentique | asaas
+  body      String
+  handled   Boolean  @default(false)
+  note      String?
+  createdAt DateTime @default(now())
+}
