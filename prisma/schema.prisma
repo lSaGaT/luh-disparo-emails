@@ -12,6 +12,8 @@ model User {
   email        String   @unique
   name         String
   passwordHash String
+  // incrementada a cada troca de senha: tokens JWT emitidos antes ficam inválidos
+  tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

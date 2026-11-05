@@ -7,6 +7,8 @@ export type SessionUser = {
   id: string
   email: string
   name: string
+  /** tokenVersion no momento da emissão — checado contra o User no requireSession */
+  tokenVersion?: number
 }
 
 /** Opções do cookie de sessão adaptadas ao contexto de acesso.
@@ -40,12 +42,16 @@ export function sessionCookieOptions(hostHeader: string | null): {
 }
 
 function getSecret(): Uint8Array {
-  const secret = process.env.AUTH_SECRET || 'dev-secret-insecure-change-me'
+  // Sem fallback: um segredo default conhecido permitiria forjar sessão admin.
+  const secret = process.env.AUTH_SECRET
+  if (!secret || secret.length < 32) {
+    throw new Error('AUTH_SECRET ausente ou fraca: defina uma segredo de ao menos 32 caracteres no ambiente.')
+  }
   return new TextEncoder().encode(secret)
 }
 
 export async function createSessionToken(user: SessionUser): Promise<string> {
-  return await new SignJWT({ email: user.email, name: user.name })
+  return await new SignJWT({ email: user.email, name: user.name, ver: user.tokenVersion ?? 0 })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(user.id)
     .setIssuedAt()
@@ -61,6 +67,7 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
       id: payload.sub,
       email: (payload.email as string) || '',
       name: (payload.name as string) || '',
+      tokenVersion: typeof payload.ver === 'number' ? payload.ver : undefined,
     }
   } catch {
     return null
