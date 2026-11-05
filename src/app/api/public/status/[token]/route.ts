@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { fieldDef } from '@/lib/fields'
+import { isLinkExpired } from '@/lib/public-token'
 
 /** Página de status e segunda via (vista da pessoa). */
 export async function GET(_request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
   const r = await db.recipient.findUnique({ where: { token }, include: { process: true } })
-  if (!r) return NextResponse.json({ error: 'Link inválido.' }, { status: 404 })
+  if (!r || isLinkExpired(r)) return NextResponse.json({ error: 'Link inválido.' }, { status: 404 })
 
   let formData: Record<string, string> = {}
   try {

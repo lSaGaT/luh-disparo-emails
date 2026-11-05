@@ -58,6 +58,24 @@ export async function stepDispatchForm(recipientId: string): Promise<void> {
 export async function stepCreateContract(recipientId: string): Promise<void> {
   const recipient = await getRecipientWithProcess(recipientId)
   if (!recipient) return
+
+  // documento já existe: NUNCA regenerar (evita segundo documento na Autentique
+  // e contratos recriados com dados alterados) — apenas reenvia o link
+  if (recipient.autentiqueDocId) {
+    const claimed = await db.recipient.updateMany({
+      where: { id: recipient.id, status: 'form_recebido' },
+      data: { status: 'contrato_enviado', stage: null, error: null },
+    })
+    if (claimed.count !== 1) return
+    await emailSignLink({
+      name: recipient.name,
+      email: recipient.email,
+      signUrl: recipient.signUrl,
+      processName: recipient.process.name,
+    })
+    return
+  }
+
   const claimed = await db.recipient.updateMany({
     where: { id: recipient.id, status: 'form_recebido' },
     data: { status: 'gerando_contrato' },
@@ -321,11 +339,14 @@ export async function retryRecipient(recipientId: string): Promise<void> {
   })
 }
 
-/** Chamado quando a pessoa envia o formulário público. */
+/** Chamado quando a pessoa envia o formulário público.
+ * O status já foi clamado para 'form_recebido' atomicamente na rota — aqui só
+ * gravamos metadados. Nunca regredir estado: uma regressão reabriria o fluxo
+ * e permitiria recriar contrato/cobrança com dados alterados. */
 export async function onFormSubmitted(recipientId: string): Promise<void> {
   await db.recipient.update({
     where: { id: recipientId },
-    data: { status: 'form_recebido', submittedAt: new Date(), stage: null, error: null },
+    data: { submittedAt: new Date(), stage: null, error: null },
   })
   // tenta criar o contrato imediatamente; se falhar, a fila retenta
   await stepCreateContract(recipientId).catch(() => undefined)

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireSession } from '@/lib/api-auth'
 import { parseFields, ALL_FIELDS } from '@/lib/fields'
+import { generateRecipientToken } from '@/lib/public-token'
 
 /** Lista simples de processos. */
 export async function GET() {
@@ -73,6 +74,12 @@ export async function POST(request: NextRequest) {
   if (emails.length === 0) {
     return NextResponse.json({ error: 'Informe ao menos um e-mail válido (um por linha).' }, { status: 400 })
   }
+  if (emails.length > 5000) {
+    return NextResponse.json({ error: 'Máximo de 5000 destinatários por processo.' }, { status: 400 })
+  }
+  if (name.length > 200) {
+    return NextResponse.json({ error: 'Nome do processo muito longo (máx. 200 caracteres).' }, { status: 400 })
+  }
 
   // valida chaves de campos
   const validKeys = new Set(ALL_FIELDS.map((f) => f.key))
@@ -87,7 +94,8 @@ export async function POST(request: NextRequest) {
       description,
       formFields: formFields ? JSON.stringify(formFields) : JSON.stringify(parseFields(null)),
       recipients: {
-        create: emails.map((e) => ({ name: e.name, email: e.email })),
+        // token gerado com CSPRNG (o cuid default não é seguro como credencial)
+        create: emails.map((e) => ({ name: e.name, email: e.email, token: generateRecipientToken() })),
       },
     },
   })
