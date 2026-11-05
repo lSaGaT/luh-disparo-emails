@@ -89,7 +89,7 @@ export async function stepCreateContract(recipientId: string): Promise<void> {
 
     const formData = formDataOf(recipient)
     const data = buildContractData(formData, recipient.process, settings.adminSignerName)
-    const template = recipient.process.contractTemplate || settings.contractTemplate
+    const template = settings.contractTemplate
     const pdf = await renderContractPdf(template, data)
 
     const doc = await autentique.createDocument(settings.autentiqueToken, {
@@ -174,6 +174,7 @@ export async function stepFinalizeSignature(recipientId: string): Promise<void> 
     const emailResult = await emailSignedCopy({
       name: recipient.name,
       email: recipient.email,
+      token: recipient.token,
       processName: recipient.process.name,
       signedPdf: buffer,
     })
@@ -320,11 +321,54 @@ export async function pollAsaas(): Promise<void> {
   }
 }
 
-/** Reprocessa a etapa onde o destinatário falhou. */
-export async function retryRecipient(recipientId: string): Promise<void> {
-  const r = await db.recipient.findUnique({ where: { id: recipientId } })
-  if (!r || r.status !== 'erro') return
+/**
+ * Reprocessa a etapa onde o destinatário falhou.
+ * Regra de ouro: nunca recriar recurso externo que já existe — cobrança criada
+ * no Asaas ou documento criado na Autentique não são recriados (duplicaria
+ * cobrança/documento); o retry apenas reenvia o e-mail com o recurso atual.
+ */
+export async function retryRecipient(recipientId: string): Promise<{ ok: boolean; error?: string }> {
+  const r = await getRecipientWithProcess(recipientId)
+  if (!r || r.status !== 'erro') return { ok: false, error: 'Destinatário não está em estado de erro' }
   const stage = r.stage
+
+  // ---- cobrança já criada: reenviar o link, não recriar a cobrança ----
+  if (stage === 'payment' && r.asaasPaymentId && r.paymentUrl) {
+    const claim = await db.recipient.updateMany({
+      where: { id: r.id, status: 'erro', stage: 'payment' },
+      data: { status: 'pagamento_enviado', stage: null, error: null },
+    })
+    if (claim.count !== 1) return { ok: false, error: 'Estado mudou durante o retry; tente novamente' }
+    const result = await emailPaymentLink({
+      name: r.name,
+      email: r.email,
+      paymentUrl: r.paymentUrl,
+      processName: r.process.name,
+      amount: r.process.amount,
+      dueDate: r.process.dueDate,
+    })
+    if (!result.ok) await fail(r.id, 'payment', result.error || 'Falha ao reenviar e-mail do pagamento')
+    return result
+  }
+
+  // ---- documento já criado: reenviar link de assinatura, não recriar doc ----
+  if (stage === 'contract' && r.autentiqueDocId && r.signUrl) {
+    const claim = await db.recipient.updateMany({
+      where: { id: r.id, status: 'erro', stage: 'contract' },
+      data: { status: 'contrato_enviado', stage: null, error: null },
+    })
+    if (claim.count !== 1) return { ok: false, error: 'Estado mudou durante o retry; tente novamente' }
+    const result = await emailSignLink({
+      name: r.name,
+      email: r.email,
+      signUrl: r.signUrl,
+      processName: r.process.name,
+    })
+    if (!result.ok) await fail(r.id, 'contract', result.error || 'Falha ao reenviar e-mail de assinatura')
+    return result
+  }
+
+  // ---- recursos ainda não criados: retrocede para a etapa de origem ----
   const back: Record<string, string> = {
     form: 'fila',
     contract: 'form_recebido',
@@ -332,11 +376,12 @@ export async function retryRecipient(recipientId: string): Promise<void> {
     payment: 'assinado',
   }
   const next = stage ? back[stage] : null
-  if (!next) return
+  if (!next) return { ok: false, error: 'Etapa de erro desconhecida' }
   await db.recipient.update({
     where: { id: recipientId },
     data: { status: next, stage: null, error: null },
   })
+  return { ok: true }
 }
 
 /** Chamado quando a pessoa envia o formulário público.
@@ -360,6 +405,7 @@ export async function resendSignedCopy(recipientId: string): Promise<{ ok: boole
   return emailSignedCopy({
     name: r.name,
     email: r.email,
+    token: r.token,
     processName: r.process.name,
     signedPdf: Buffer.from(r.signedPdfB64, 'base64'),
   }).then((res) => ({ ok: res.ok, error: res.error }))

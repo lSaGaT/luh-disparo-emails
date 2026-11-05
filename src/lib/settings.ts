@@ -55,12 +55,39 @@ export async function updateSettings(data: Partial<AppSettings>): Promise<void> 
   })
 }
 
-/** URL base pública usada nos links enviados por e-mail. */
+/**
+ * URL base pública usada nos links enviados por e-mail.
+ *
+ * Segurança: um appUrl malicioso faz TODOS os e-mails oficiais apontarem os
+ * botões para um domínio do atacante (BEC com remetente legítimo). Regras:
+ * - exige https://, exceto localhost/127.0.0.1 (ambiente de teste);
+ * - se APP_URL_ALLOWLIST estiver definida (separada por vírgula), o host
+ *   precisa estar nela.
+ */
 export async function getAppUrl(): Promise<string> {
   const s = await getSettings()
-  if (s.appUrl && s.appUrl.startsWith('http')) return s.appUrl.replace(/\/$/, '')
+  const candidate = s.appUrl?.trim()
+  if (candidate && isValidAppUrl(candidate)) return candidate.replace(/\/$/, '')
   // fallback: URL de preview do sandbox
   const preview = process.env.PREVIEW_URL
-  if (preview) return preview.replace(/\/$/, '')
+  if (preview && isValidAppUrl(preview)) return preview.replace(/\/$/, '')
   return 'http://localhost:3000'
+}
+
+export function isValidAppUrl(url: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  const host = parsed.hostname.toLowerCase()
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+  if (!isLocal && parsed.protocol !== 'https:') return false
+  const allowlist = (process.env.APP_URL_ALLOWLIST || '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean)
+  if (allowlist.length > 0 && !allowlist.includes(host)) return false
+  return true
 }

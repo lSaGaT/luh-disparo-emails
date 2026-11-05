@@ -7,6 +7,6 @@ export async function POST(_request: NextRequest, ctx: { params: Promise<{ id: s
   if ('response' in auth) return auth.response
 
   const { id } = await ctx.params
-  await retryRecipient(id)
-  return NextResponse.json({ ok: true })
+  const result = await retryRecipient(id)
+  return NextResponse.json(result, { status: result.ok ? 200 : 400 })
 }

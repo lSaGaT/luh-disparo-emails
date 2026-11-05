@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import fs from 'fs'
 import { db } from '@/lib/db'
 import { getSettings, getAppUrl } from '@/lib/settings'
 import { formatCurrencyBRL, formatDateBR } from '@/lib/format'
@@ -10,16 +11,40 @@ type SendArgs = {
   attachments?: { filename: string; content: Buffer }[]
 }
 
+/** Escapa HTML de todo texto interpolado nos templates: dados de destinatário
+ * e nomes de processo entram no corpo do e-mail e não podem injetar markup. */
+function esc(text: string | null | undefined): string {
+  return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c))
+}
+
 export async function createTransporter() {
   const s = await getSettings()
   if (!s.smtpUser || !s.smtpPass) {
     throw new Error('SMTP não configurado. Vá em Configurações e informe o e-mail do Gmail e a senha de app.')
+  }
+  // DKIM opcional via ambiente (quando o envio migrar para domínio próprio):
+  // DKIM_DOMAIN, DKIM_KEY_SELECTOR e DKIM_PRIVATE_KEY (ou DKIM_PRIVATE_KEY_PATH)
+  let dkim: { domainName: string; keySelector: string; privateKey: string } | undefined
+  const dkimDomain = process.env.DKIM_DOMAIN
+  const dkimSelector = process.env.DKIM_KEY_SELECTOR
+  const dkimKeyInline = process.env.DKIM_PRIVATE_KEY
+  const dkimKeyPath = process.env.DKIM_PRIVATE_KEY_PATH
+  if (dkimDomain && dkimSelector && (dkimKeyInline || dkimKeyPath)) {
+    try {
+      const privateKey = dkimKeyInline
+        ? dkimKeyInline.replace(/\\n/g, '\n')
+        : fs.readFileSync(dkimKeyPath!, 'utf8')
+      dkim = { domainName: dkimDomain, keySelector: dkimSelector, privateKey }
+    } catch {
+      throw new Error('DKIM configurado mas a chave privada não pôde ser lida (DKIM_PRIVATE_KEY/PATH).')
+    }
   }
   return nodemailer.createTransport({
     host: s.smtpHost,
     port: s.smtpPort,
     secure: s.smtpPort === 465,
     auth: { user: s.smtpUser, pass: s.smtpPass },
+    ...(dkim ? { dkim } : {}),
   })
 }
 
@@ -60,7 +85,7 @@ function wrap(title: string, bodyHtml: string): string {
           <span style="color:#ffffff;font-size:18px;font-weight:bold;">Central de Documentos</span>
         </td></tr>
         <tr><td style="padding:28px;">
-          <h1 style="margin:0 0 16px;font-size:20px;color:#18181b;">${title}</h1>
+          <h1 style="margin:0 0 16px;font-size:20px;color:#18181b;">${esc(title)}</h1>
           <div style="font-size:14px;color:#3f3f46;line-height:1.6;">${bodyHtml}</div>
         </td></tr>
         <tr><td style="padding:16px 28px;border-top:1px solid #e4e4e7;">
@@ -75,13 +100,13 @@ function wrap(title: string, bodyHtml: string): string {
 
 function button(url: string, label: string): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;"><tr><td style="background:#059669;border-radius:8px;">
-    <a href="${url}" style="display:inline-block;padding:12px 24px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;">${label}</a>
+    <a href="${esc(url)}" style="display:inline-block;padding:12px 24px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;">${esc(label)}</a>
   </td></tr></table>`
 }
 
 function greeting(name: string | null | undefined): string {
   const primeiro = (name || '').trim().split(/\s+/)[0] || 'Olá'
-  return `<p>Olá, <strong>${primeiro}</strong>!</p>`
+  return `<p>Olá, <strong>${esc(primeiro)}</strong>!</p>`
 }
 
 export async function emailFormLink(recipient: { name: string; email: string; token: string; processName: string }) {
@@ -90,9 +115,9 @@ export async function emailFormLink(recipient: { name: string; email: string; to
   const html = wrap(
     'Preenchimento de formulário',
     `${greeting(recipient.name)}
-    <p>Você recebeu o processo <strong>${recipient.processName}</strong>. Para gerarmos o seu contrato, preencha o formulário com os seus dados clicando no botão abaixo:</p>
+    <p>Você recebeu o processo <strong>${esc(recipient.processName)}</strong>. Para gerarmos o seu contrato, preencha o formulário com os seus dados clicando no botão abaixo:</p>
     ${button(url, 'Preencher formulário')}
-    <p style="font-size:12px;color:#71717a;">Se o botão não funcionar, copie e cole este endereço no navegador:<br><a href="${url}" style="color:#059669;">${url}</a></p>`
+    <p style="font-size:12px;color:#71717a;">Se o botão não funcionar, copie e cole este endereço no navegador:<br><a href="${esc(url)}" style="color:#059669;">${esc(url)}</a></p>`
   )
   return sendMail({ to: recipient.email, subject: `Formulário pendente — ${recipient.processName}`, html }, { kind: 'form' })
 }
@@ -103,21 +128,21 @@ export async function emailSignLink(recipient: { name: string; email: string; si
   const html = wrap(
     'Seu contrato está pronto para assinatura',
     `${greeting(recipient.name)}
-    <p>Recebemos os seus dados do processo <strong>${recipient.processName}</strong> e o seu contrato já foi gerado. Para assinar eletronicamente, clique no botão abaixo:</p>
+    <p>Recebemos os seus dados do processo <strong>${esc(recipient.processName)}</strong> e o seu contrato já foi gerado. Para assinar eletronicamente, clique no botão abaixo:</p>
     ${button(url, 'Assinar contrato')}
     <p>Após a assinatura de ambas as partes, você receberá uma cópia do contrato assinado em seu e-mail.</p>
-    <p style="font-size:12px;color:#71717a;">Se o botão não funcionar, copie e cole este endereço no navegador:<br><a href="${url}" style="color:#059669;">${url}</a></p>`
+    <p style="font-size:12px;color:#71717a;">Se o botão não funcionar, copie e cole este endereço no navegador:<br><a href="${esc(url)}" style="color:#059669;">${esc(url)}</a></p>`
   )
   return sendMail({ to: recipient.email, subject: `Assine seu contrato — ${recipient.processName}`, html }, { kind: 'contract' })
 }
 
-export async function emailSignedCopy(recipient: { name: string; email: string; processName: string; signedPdf: Buffer }) {
+export async function emailSignedCopy(recipient: { name: string; email: string; token: string; processName: string; signedPdf: Buffer }) {
   const base = await getAppUrl()
   const pageUrl = `${base}/p/${recipient.token}`
   const html = wrap(
     'Contrato assinado por ambas as partes',
     `${greeting(recipient.name)}
-    <p>O contrato do processo <strong>${recipient.processName}</strong> foi assinado por você e pelo contratado. A cópia assinada está anexada a este e-mail e também disponível no botão abaixo:</p>
+    <p>O contrato do processo <strong>${esc(recipient.processName)}</strong> foi assinado por você e pelo contratado. A cópia assinada está anexada a este e-mail e também disponível no botão abaixo:</p>
     ${button(pageUrl, 'Ver segunda via do contrato')}`
   )
   return sendMail(
@@ -137,7 +162,7 @@ export async function emailPaymentLink(recipient: { name: string; email: string;
   const html = wrap(
     'Link de pagamento',
     `${greeting(recipient.name)}
-    <p>Seu contrato do processo <strong>${recipient.processName}</strong> foi assinado. Realize o pagamento clicando no botão abaixo${valor ? ` — valor: <strong>${valor}</strong>` : ''}${recipient.dueDate ? `, vencimento em <strong>${recipient.dueDate.split('-').reverse().join('/')}</strong>` : ''}:</p>
+    <p>Seu contrato do processo <strong>${esc(recipient.processName)}</strong> foi assinado. Realize o pagamento clicando no botão abaixo${valor ? ` — valor: <strong>${esc(valor)}</strong>` : ''}${recipient.dueDate ? `, vencimento em <strong>${esc(recipient.dueDate.split('-').reverse().join('/'))}</strong>` : ''}:</p>
     ${button(recipient.paymentUrl, 'Pagar agora')}
     <p>No link você escolhe a forma de pagamento: <strong>PIX, cartão de crédito ou boleto</strong>.</p>`
   )
@@ -151,7 +176,7 @@ export async function emailPaid(recipient: { name: string; email: string; proces
   const html = wrap(
     'Pagamento confirmado',
     `${greeting(recipient.name)}
-    <p>Recebemos o pagamento do processo <strong>${recipient.processName}</strong>${valor ? ` no valor de <strong>${valor}</strong>` : ''} em ${formatDateBR(new Date())}. Tudo certo por aqui!</p>
+    <p>Recebemos o pagamento do processo <strong>${esc(recipient.processName)}</strong>${valor ? ` no valor de <strong>${esc(valor)}</strong>` : ''} em ${formatDateBR(new Date())}. Tudo certo por aqui!</p>
     ${button(pageUrl, 'Acessar meus documentos')}`
   )
   return sendMail({ to: recipient.email, subject: `Pagamento confirmado — ${recipient.processName}`, html }, { kind: 'paid' })
