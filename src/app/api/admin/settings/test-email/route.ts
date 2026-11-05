@@ -3,7 +3,7 @@ import { requireSession } from '@/lib/api-auth'
 import { emailTest } from '@/lib/mailer'
 
 export async function POST(request: NextRequest) {
-  const auth = await requireSession()
+  const auth = await requireSession(request)
   if ('response' in auth) return auth.response
 
   const body = await request.json().catch(() => null)

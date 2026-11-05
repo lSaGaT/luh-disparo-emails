@@ -11,7 +11,7 @@ import {
   emailPaid,
 } from '@/lib/mailer'
 
-type RecipientWithProcess = Awaited<ReturnType<typeof getRecipientWithProcess>>
+type RecipientWithProcess = NonNullable<Awaited<ReturnType<typeof getRecipientWithProcess>>>
 
 async function getRecipientWithProcess(id: string) {
   return db.recipient.findUnique({ where: { id }, include: { process: true } })

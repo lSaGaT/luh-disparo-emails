@@ -50,8 +50,8 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
   })
 }
 
-export async function DELETE(_request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireSession()
+export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await requireSession(request)
   if ('response' in auth) return auth.response
 
   const { id } = await ctx.params

@@ -18,6 +18,8 @@ export type SessionUser = {
  * se ele for `SameSite=None; Secure; Partitioned` — com `SameSite=Lax` o cookie
  * é descartado em contexto cross-site e o usuário volta para o login em loop.
  * Em localhost/IP (acesso HTTP direto) mantemos `Lax`, que funciona normalmente.
+ * ATENÇÃO: a branch de IP assume HTTP — em produção o edge (Caddy/nginx) deve
+ * terminar TLS; o cookie de sessão nunca deve trafegar em texto claro na internet.
  */
 export function sessionCookieOptions(hostHeader: string | null): {
   httpOnly: boolean
@@ -32,7 +34,11 @@ export function sessionCookieOptions(hostHeader: string | null): {
     host === 'localhost' ||
     host === '127.0.0.1' ||
     host === '::1' ||
-    /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
+    host.endsWith('.localhost') ||
+    // loopback/privado em notação IPv4 válida (octetos 0-255)
+    /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/.test(
+      host
+    )
 
   if (isLocal) {
     return { httpOnly: true, sameSite: 'lax', secure: false, partitioned: false, maxAge: 7 * 86400, path: '/' }

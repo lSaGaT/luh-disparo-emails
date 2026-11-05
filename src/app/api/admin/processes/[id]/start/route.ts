@@ -3,8 +3,8 @@ import { db } from '@/lib/db'
 import { requireSession } from '@/lib/api-auth'
 import { ensureQueueInterval } from '@/lib/queue'
 
-export async function POST(_request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireSession()
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await requireSession(request)
   if ('response' in auth) return auth.response
 
   const { id } = await ctx.params

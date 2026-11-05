@@ -23,7 +23,7 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
-  const auth = await requireSession()
+  const auth = await requireSession(request)
   if ('response' in auth) return auth.response
 
   const body = await request.json().catch(() => null)

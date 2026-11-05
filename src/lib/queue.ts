@@ -21,8 +21,12 @@ type QueueState = {
   lastSendAt: number
   lastAutentiquePoll: number
   lastAsaasPoll: number
+  lastRetentionAt: number
   intervalStarted: boolean
 }
+
+const RETENTION_DAYS = 90
+const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 const globalForQueue = globalThis as unknown as { __queueState?: QueueState }
 
@@ -33,6 +37,7 @@ function state(): QueueState {
       lastSendAt: 0,
       lastAutentiquePoll: 0,
       lastAsaasPoll: 0,
+      lastRetentionAt: 0,
       intervalStarted: false,
     }
   }
@@ -111,6 +116,23 @@ export async function tick(): Promise<void> {
       if (hasPending > 0) {
         await pollAsaas()
         lastTickResult = { at: Date.now(), action: 'sondagem_asaas', detail: `${hasPending} aguardando pagamento` }
+        return
+      }
+    }
+
+    // 6) retenção: expurga logs com mais de 90 dias (LGPD — minimização;
+    // também impede o SQLite crescer indefinidamente com WebhookLog)
+    if (now - s.lastRetentionAt >= RETENTION_INTERVAL_MS) {
+      s.lastRetentionAt = now
+      const cutoff = new Date(now - RETENTION_DAYS * 24 * 60 * 60 * 1000)
+      const delWebhooks = await db.webhookLog.deleteMany({ where: { createdAt: { lt: cutoff } } })
+      const delEmails = await db.emailLog.deleteMany({ where: { createdAt: { lt: cutoff } } })
+      if (delWebhooks.count + delEmails.count > 0) {
+        lastTickResult = {
+          at: Date.now(),
+          action: 'retencao',
+          detail: `${delEmails.count} EmailLog + ${delWebhooks.count} WebhookLog (>90d)`,
+        }
         return
       }
     }

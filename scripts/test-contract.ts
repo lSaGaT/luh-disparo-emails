@@ -1,19 +1,20 @@
-/** Testa a geração do PDF do contrato com dados reais. */
+/** Testa a geração do PDF do contrato com dados FICTÍCIOS.
+ * Nunca colocar PII real aqui: o arquivo é versionado no git. */
 import { renderContractPdf, buildContractData } from '../src/lib/contract'
 import { writeFileSync } from 'fs'
 
 const formData = {
   email: 'maria@teste.com',
   nome_completo: 'Maria Souza da Silva',
-  cpf: '529.982.247-25',
-  rg: '34.567.890-1',
-  telefone: '(11) 98888-7777',
-  data_nascimento: '1990-08-15',
-  rua: 'Rua das Acácias',
-  numero: '120, apto 52',
-  bairro: 'Jardim Primavera',
+  cpf: 'XXX.XXX.XXX-XX',
+  rg: 'XX.XXX.XXX-X',
+  telefone: '(11) 90000-0000',
+  data_nascimento: '1990-01-01',
+  rua: 'Rua Exemplo',
+  numero: 'S/N',
+  bairro: 'Centro',
   cidade: 'São Paulo',
-  cep: '02310-000',
+  cep: '00000-000',
   estado: 'SP',
 }
 
@@ -35,7 +36,7 @@ CLÁUSULA 3 — VARIÁVEL VAZIA
 3.1. Campo inexistente: {{campo_que_nao_existe}} deve virar traços.`
 
 async function main() {
-  const data = buildContractData(formData, { name: 'Contratos Vista Alegre', referenceDate: '05/11/2026', amount: 1500 }, 'Lucas Ramos')
+  const data = buildContractData(formData, { name: 'Contratos Exemplo', referenceDate: '05/11/2026', amount: 1500 }, 'Nome do Contratado')
   const pdf = await renderContractPdf(template, data)
   writeFileSync('/tmp/render/contrato-teste.pdf', pdf)
   console.log('PDF gerado:', pdf.length, 'bytes')

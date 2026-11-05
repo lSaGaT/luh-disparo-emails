@@ -45,7 +45,7 @@ export default function DashboardPage() {
 
   const cards = [
     { label: 'Processos', value: stats?.totalProcesses ?? 0, icon: FolderKanban, href: '/processos' },
-    { label: 'Aguardando formulário', value: stats?.byStatus?.['fila'] + stats?.byStatus?.['form_enviado'] || 0, icon: Clock, href: '/processos' },
+    { label: 'Aguardando formulário', value: (stats?.byStatus?.['fila'] ?? 0) + (stats?.byStatus?.['form_enviado'] ?? 0), icon: Clock, href: '/processos' },
     { label: 'Aguardando assinatura', value: stats?.byStatus?.['contrato_enviado'] || 0, icon: FileSignature, href: '/processos' },
     { label: 'Aguardando pagamento', value: stats?.byStatus?.['pagamento_enviado'] || 0, icon: CreditCard, href: '/processos' },
     { label: 'Concluídos (pagos)', value: stats?.byStatus?.['pago'] || 0, icon: CheckCircle2, href: '/processos' },

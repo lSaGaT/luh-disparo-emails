@@ -1,4 +1,17 @@
 :81 {
+	# BLOCO DE INFRA DE PREVIEW (sandbox) — proxy para a porta indicada em
+	# ?XTransformPort=. ATENÇÃO: permite alcançar qualquer porta local sem
+	# auth. Em produção, remover este bloco e servir com TLS:
+	#   exemplo.com.br {
+	#     tls internal   # ou certificado ACME
+	#     header {
+	#       Strict-Transport-Security "max-age=63072000"
+	#       X-Content-Type-Options "nosniff"
+	#       Referrer-Policy "strict-origin-when-cross-origin"
+	#     }
+	#     log { output file /var/log/caddy/access.log }
+	#     reverse_proxy localhost:3000
+	#   }
 	@transform_port_query {
 		query XTransformPort=*
 	}
@@ -13,6 +26,11 @@
 	}
 
 	handle {
+		header {
+			X-Content-Type-Options "nosniff"
+			Referrer-Policy "strict-origin-when-cross-origin"
+			-Server
+		}
 		reverse_proxy localhost:3000 {
 			header_up Host {host}
 			header_up X-Forwarded-For {remote_host}

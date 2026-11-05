@@ -14,8 +14,8 @@ export async function middleware(request: NextRequest) {
       res.headers.set('Cache-Control', 'no-store')
       return res
     }
-    const loginUrl = new URL('/login', request.url)
-    const res = NextResponse.redirect(loginUrl)
+    // Location relativo: não reflete o header Host (host header injection)
+    const res = new NextResponse(null, { status: 307, headers: { Location: '/login' } })
     res.headers.set('Cache-Control', 'no-store')
     return res
   }

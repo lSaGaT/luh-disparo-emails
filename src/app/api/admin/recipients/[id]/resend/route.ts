@@ -7,7 +7,7 @@ import { resendSignedCopy, retryRecipient } from '@/lib/pipeline'
 type Kind = 'form' | 'contract' | 'payment' | 'copy'
 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireSession()
+  const auth = await requireSession(request)
   if ('response' in auth) return auth.response
 
   const { id } = await ctx.params

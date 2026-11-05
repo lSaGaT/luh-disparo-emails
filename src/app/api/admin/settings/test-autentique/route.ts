@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/api-auth'
 import { getSettings } from '@/lib/settings'
 import { testToken } from '@/lib/autentique'
 
-export async function POST() {
-  const auth = await requireSession()
+export async function POST(request: NextRequest) {
+  const auth = await requireSession(request)
   if ('response' in auth) return auth.response
 
   const s = await getSettings()

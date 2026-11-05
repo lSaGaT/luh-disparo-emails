@@ -11,7 +11,7 @@ const WINDOW_MS = 15 * 60 * 1000
 
 /** Altera a senha do administrador logado. */
 export async function POST(request: NextRequest) {
-  const auth = await requireSession()
+  const auth = await requireSession(request)
   if ('response' in auth) return auth.response
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'local'

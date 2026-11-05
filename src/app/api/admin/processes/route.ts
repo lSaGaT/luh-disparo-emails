@@ -52,7 +52,7 @@ function parseEmailList(raw: string): { name: string; email: string }[] {
 
 /** Cria um processo (envio em massa) com a lista de destinatários. */
 export async function POST(request: NextRequest) {
-  const auth = await requireSession()
+  const auth = await requireSession(request)
   if ('response' in auth) return auth.response
 
   const body = await request.json().catch(() => null)
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
   }
 
   // valida chaves de campos
-  const validKeys = new Set(ALL_FIELDS.map((f) => f.key))
+  const validKeys = new Set<string>(ALL_FIELDS.map((f) => f.key))
   const formFields = (formFieldsRaw ? formFieldsRaw.filter((k) => validKeys.has(k)) : null) || null
 
   const process = await db.process.create({
