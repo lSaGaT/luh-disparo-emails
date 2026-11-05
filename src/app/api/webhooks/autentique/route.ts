@@ -24,10 +24,10 @@ export async function POST(request: NextRequest) {
   const doc = (obj.document || {}) as Record<string, unknown>
   const documentId = String(doc.id || obj.id || '')
 
-  await db.webhookLog.create({
+  const log = await db.webhookLog.create({
     data: {
       source: 'autentique',
-      body: raw.slice(0, 4000),
+      body: raw.slice(0, 1000),
       handled: false,
       note: `${type || 'evento sem tipo'} doc=${documentId || '?'}`,
     },
@@ -45,7 +45,10 @@ export async function POST(request: NextRequest) {
   const recipient = await db.recipient.findFirst({
     where: { autentiqueDocId: documentId, status: 'contrato_enviado' },
   })
-  if (!recipient) return NextResponse.json({ ok: true })
+  if (!recipient) {
+    await db.webhookLog.update({ where: { id: log.id }, data: { note: `${log.note} | recipient não encontrado` } })
+    return NextResponse.json({ ok: true })
+  }
 
   // confere com a API antes de finalizar (evita depender só do payload)
   const settings = await getSettings()
@@ -56,6 +59,7 @@ export async function POST(request: NextRequest) {
       const allSigned = docStatus.signatures.length > 0 && docStatus.signatures.every((s) => !!s.signed)
       if (allSigned || docStatus.files?.signed) {
         await stepFinalizeSignature(recipient.id)
+        await db.webhookLog.update({ where: { id: log.id }, data: { handled: true } })
       }
     } catch {
       // sondagem periódica cobre depois
