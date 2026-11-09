@@ -59,3 +59,16 @@ server.log
 disparo-emails
 # Skills directory
 /skills/*.pid
+
+# dados de execucao do modo producao portatil (PII + segredo - nunca versionar)
+data/
+
+# artefatos locais - nunca versionar
+/*.pdf
+/image.png
+/openapi.json
+*.bak
+*.pid
+
+# script exclusivo do desenvolvedor (nao vai para a cliente)
+publicar-atualizacao.bat
