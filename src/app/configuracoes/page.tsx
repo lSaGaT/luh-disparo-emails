@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Mail, PenTool, Wallet, Globe2, Save, SendHorizonal, PlugZap, KeyRound } from 'lucide-react'
+import { Mail, PenTool, Wallet, Globe2, Save, SendHorizonal, PlugZap, KeyRound, Copy } from 'lucide-react'
 import { AdminShell } from '@/components/admin-shell'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ type Settings = {
   smtpPass: string | null
   smtpFromName: string
   autentiqueToken: string | null
+  autentiqueWebhookSecret: string | null
   adminSignerName: string | null
   adminSignerEmail: string | null
   adminSignerCpf: string | null
@@ -165,6 +166,13 @@ export default function ConfiguracoesPage() {
                 <Label htmlFor="autentiqueToken">Token da API</Label>
                 <Input id="autentiqueToken" type="password" value={s.autentiqueToken || ''} onChange={(e) => set({ autentiqueToken: e.target.value })} placeholder="Token de API (sandbox ou produção)" />
               </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="autentiqueWebhookSecret">Segredos do webhook (HMAC) — um por webhook</Label>
+                <Input id="autentiqueWebhookSecret" type="password" value={s.autentiqueWebhookSecret || ''} onChange={(e) => set({ autentiqueWebhookSecret: e.target.value })} placeholder="Cole aqui TODOS os códigos gerados no painel, separados por vírgula" />
+                <p className="text-xs text-zinc-500">
+                  Cada webhook criado no painel (Conta → Webhooks) gera um código próprio. Cole todos neste campo, separados por vírgula (ex.: CODIGO1,CODIGO2) — qualquer entrega assinada por um deles é aceita. Enquanto estiver vazio, o webhook continua funcionando (a rota reconfirma pela API antes de agir).
+                </p>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="adminSignerName">Seu nome (2º signatário)</Label>
                 <Input id="adminSignerName" value={s.adminSignerName || ''} onChange={(e) => set({ adminSignerName: e.target.value })} placeholder="Nome que aparece no contrato" />
@@ -233,9 +241,34 @@ export default function ConfiguracoesPage() {
                 <Label htmlFor="pollMinutes">Sondagem de status (minutos)</Label>
                 <Input id="pollMinutes" type="number" min={1} value={s.pollMinutes} onChange={(e) => set({ pollMinutes: Number(e.target.value) })} />
               </div>
-              <p className="text-xs text-zinc-400 sm:col-span-2">
-                Webhooks (opcional, mais rápido): configure no painel da Autentique e do Asaas a URL <code className="bg-zinc-100 px-1 rounded">https://SEU-DOMINIO/api/webhooks/autentique</code> e <code className="bg-zinc-100 px-1 rounded">https://SEU-DOMINIO/api/webhooks/asaas</code>. Sem webhooks o sistema descobre assinaturas e pagamentos por sondagem.
-              </p>
+              <div className="sm:col-span-2 space-y-2">
+                <p className="text-xs text-zinc-500">
+                  <strong>Webhooks</strong> (opcional, detecção em segundos em vez de esperar a sondagem): cadastre as URLs abaixo no painel da Autentique (Conta → Webhooks) e do Asaas (Configurações → Integrações). Essas APIs não permitem cadastrar webhook automaticamente — o cadastro é manual nos painéis deles.
+                </p>
+                {(['autentique', 'asaas'] as const).map((svc) => {
+                  const url = `${(s.appUrl || 'http://localhost:3000').replace(/\/$/, '')}/api/webhooks/${svc}`
+                  return (
+                    <div key={svc} className="flex items-center gap-2">
+                      <code className="flex-1 truncate rounded bg-zinc-100 px-2 py-1.5 text-xs">{url}</code>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(url)
+                            toast.success(`URL do ${svc} copiada!`)
+                          } catch {
+                            toast.error('Não foi possível copiar.')
+                          }
+                        }}
+                      >
+                        <Copy className="mr-1 h-3.5 w-3.5" /> Copiar
+                      </Button>
+                    </div>
+                  )
+                })}
+                <p className="text-xs text-zinc-400">As URLs usam a "URL pública do sistema" acima — salve-a antes de copiar.</p>
+              </div>
             </CardContent>
           </Card>
 

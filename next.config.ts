@@ -13,6 +13,9 @@ const securityHeaders: { key: string; value: string }[] = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // HSTS: ignorado pelos navegadores em HTTP/localhost e enforce em produção;
+  // includeSubDomains pressupõe que TODO subdomínio do domínio sirva por HTTPS
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
 ];
 
 if (previewOrigins.length > 0) {
@@ -26,6 +29,12 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: false,
   poweredByHeader: false,
+  // FAT32 responde readlink com erro anômalo (EISDIR) — desativa resolução de
+  // symlinks do webpack para builds funcionarem neste volume
+  webpack: (config) => {
+    config.resolve.symlinks = false;
+    return config;
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

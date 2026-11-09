@@ -25,7 +25,6 @@ const SIGN_DOC_MUTATION = `mutation SignDocument($documentId: UUID!) {
 const GET_DOC_QUERY = `query GetDocument($documentId: UUID!) {
   document(id: $documentId) {
     id
-    status
     files { original signed pades }
     signatures {
       public_id
@@ -61,12 +60,24 @@ export type SignatureInfo = {
   signed?: { created_at: string | null } | null
 }
 
+export type AutentiqueSignaturePosition = {
+  /** % da largura da página (0-100) */
+  x: string
+  /** % da altura da página (0-100), medido do topo */
+  y: string
+  /** página, começa em 1 */
+  z: number
+  element: 'SIGNATURE' | 'NAME' | 'INITIALS' | 'DATE' | 'CPF'
+}
+
 export type AutentiqueSignerInput = {
   email: string
   action: 'SIGN'
   name?: string
   cpf?: string
   send_automatic_email?: boolean
+  /** sem posições, a assinatura só aparece na página de auditoria da Autentique */
+  positions?: AutentiqueSignaturePosition[]
 }
 
 /** Cria o documento para assinatura. Retorna id + links dos signatários. */
@@ -75,9 +86,16 @@ export async function createDocument(
   opts: { name: string; pdf: Uint8Array; signers: AutentiqueSignerInput[] }
 ): Promise<{ id: string; signatures: SignatureInfo[] }> {
   const makeRequest = (withAutoEmail: boolean) => {
-    const signers = opts.signers.map((s) =>
-      withAutoEmail ? s : { email: s.email, action: s.action, ...(s.name ? { name: s.name } : {}), ...(s.cpf ? { configs: { cpf: s.cpf } } : {}) }
-    )
+    // schema atual da API: cpf não existe mais no topo do SignerInput —
+    // o formato correto é configs: { cpf } (SignerConfigInput)
+    const signers = opts.signers.map((s) => ({
+      email: s.email,
+      action: s.action,
+      ...(s.name ? { name: s.name } : {}),
+      ...(s.cpf ? { configs: { cpf: s.cpf } } : {}),
+      ...(s.positions?.length ? { positions: s.positions } : {}),
+      ...(withAutoEmail && s.send_automatic_email !== undefined ? { send_automatic_email: s.send_automatic_email } : {}),
+    }))
     const operations = JSON.stringify({
       query: CREATE_DOC_MUTATION,
       variables: {
@@ -129,12 +147,13 @@ export async function signDocument(token: string, documentId: string): Promise<b
 }
 
 export type DocumentStatus = {
-  status: string
+  // o schema atual da API não tem mais `status` no Document — a conclusão é
+  // derivada de signatures[].signed e files.signed
   files: { original: string | null; signed: string | null; pades: string | null }
   signatures: SignatureInfo[]
 }
 
-/** Consulta o documento (status, assinaturas, arquivos). */
+/** Consulta o documento (assinaturas, arquivos). */
 export async function getDocument(token: string, documentId: string): Promise<DocumentStatus> {
   const data = await gql<{ document: DocumentStatus }>(token, GET_DOC_QUERY, { documentId })
   return data.document
@@ -156,6 +175,7 @@ export async function downloadSignedPdf(token: string, url: string): Promise<Uin
 
 /** Testa a validade do token. */
 export async function testToken(token: string): Promise<boolean> {
-  await gql(token, 'query { users { id } }', {})
+  // o schema atual da API não tem mais `users`; `me` é o probe barato de auth
+  await gql(token, 'query { me { id } }', {})
   return true
 }

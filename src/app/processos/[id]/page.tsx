@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useParams } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -17,6 +18,10 @@ import {
   Eye,
   MoreHorizontal,
   AlertTriangle,
+  PencilLine,
+  Trash2,
+  BellRing,
+  CheckCircle2,
 } from 'lucide-react'
 import { AdminShell } from '@/components/admin-shell'
 import { StatusBadge } from '@/components/status-badge'
@@ -37,6 +42,8 @@ type Recipient = {
   stage: string | null
   error: string | null
   submittedAt: string | null
+  editedAt: string | null
+  editSeenAt: string | null
   signUrl: string | null
   paymentUrl: string | null
   signedAt: string | null
@@ -67,6 +74,13 @@ export default function ProcessoDetalhePage() {
   const [recipients, setRecipients] = useState<Recipient[]>([])
   const [loading, setLoading] = useState(true)
   const [dataDialog, setDataDialog] = useState<{ name: string; fields: { label: string; value: string }[] } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const router = useRouter()
+
+  const hasUnseenEdit = (r: Recipient) => !!r.editedAt && (!r.editSeenAt || new Date(r.editSeenAt) < new Date(r.editedAt))
+
+  const shouldPollRef = useRef(true)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/processes/${id}`, { cache: 'no-store' })
@@ -76,11 +90,16 @@ export default function ProcessoDetalhePage() {
     setProcess(data.process)
     setRecipients(data.recipients)
     setLoading(false)
+    // auto-refresh só enquanto existe algo em andamento — processo todo pago
+    // não precisa de vigia (mesma régua da fila de background)
+    shouldPollRef.current = (data.recipients || []).some((r: Recipient) => r.status !== 'pago')
   }, [id])
 
   useEffect(() => {
     const t0 = setTimeout(() => void load(), 0)
-    const timer = setInterval(() => void load(), 5000)
+    const timer = setInterval(() => {
+      if (shouldPollRef.current) void load()
+    }, 5000)
     return () => {
       clearTimeout(t0)
       clearInterval(timer)
@@ -129,6 +148,29 @@ export default function ProcessoDetalhePage() {
     }
   }
 
+  const markEditsSeen = async () => {
+    await fetch(`/api/admin/processes/${id}/mark-edits-seen`, { method: 'POST' })
+    toast.info('Alertas de edição marcados como vistos.')
+    void load()
+  }
+
+  const exclude = async () => {
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/admin/processes/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast.success('Processo excluído.')
+        router.push('/processos')
+      } else {
+        const data = await res.json().catch(() => null)
+        toast.error(data?.error || 'Não foi possível excluir.')
+        setDeleting(false)
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const viewData = async (recipient: Recipient) => {
     const res = await fetch(`/api/public/status/${recipient.token}`)
     if (!res.ok) return
@@ -142,6 +184,8 @@ export default function ProcessoDetalhePage() {
   }, {})
   const naFila = counts['fila'] || 0
   const total = recipients.length
+  const unseenEdits = recipients.filter(hasUnseenEdit)
+  const editedCount = recipients.filter((r) => r.editedAt).length
 
   return (
     <AdminShell>
@@ -166,7 +210,26 @@ export default function ProcessoDetalhePage() {
           </div>
           {process && (
             <div className="flex items-center gap-2">
-              {process.status === 'disparando' ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/processos/${id}/editar`}>
+                  <PencilLine className="mr-1 h-4 w-4" /> Editar
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => setConfirmDelete(true)}>
+                <Trash2 className="mr-1 h-4 w-4" /> Excluir
+              </Button>
+              {process.status === 'concluido' ? (
+                <>
+                  <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700">
+                    <CheckCircle2 className="h-4 w-4" /> Concluído
+                  </span>
+                  {naFila > 0 && (
+                    <Button size="sm" onClick={start}>
+                      <Play className="mr-1 h-4 w-4" /> Disparar novamente
+                    </Button>
+                  )}
+                </>
+              ) : process.status === 'disparando' ? (
                 <>
                   <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700">
                     <span className="relative flex h-2.5 w-2.5">
@@ -196,6 +259,21 @@ export default function ProcessoDetalhePage() {
         </div>
       ) : (
         <>
+          {unseenEdits.length > 0 && (
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+              <span className="flex items-start gap-2">
+                <BellRing className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  <strong>{unseenEdits.length}</strong> pessoa(s) editaram os dados que enviaram
+                  {editedCount > unseenEdits.length ? ` (${editedCount} edição(ões) no total)` : ''}.
+                </span>
+              </span>
+              <Button variant="outline" size="sm" className="sm:ml-auto border-amber-300 text-amber-800 hover:bg-amber-100" onClick={markEditsSeen}>
+                Marcar como visto
+              </Button>
+            </div>
+          )}
+
           <Card className="mb-4">
             <CardContent className="p-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
               <span><strong className="tabular-nums">{total}</strong> pessoas</span>
@@ -230,7 +308,19 @@ export default function ProcessoDetalhePage() {
                     {recipients.map((r) => (
                       <TableRow key={r.id}>
                         <TableCell>
-                          <div className="font-medium">{r.name}</div>
+                          <div className="font-medium flex items-center gap-1.5">
+                            {r.name}
+                            {r.editedAt && (
+                              <span
+                                title={`Dados editados pela pessoa em ${new Date(r.editedAt).toLocaleString('pt-BR')}`}
+                                className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                  hasUnseenEdit(r) ? 'bg-amber-100 text-amber-800' : 'bg-zinc-100 text-zinc-500'
+                                }`}
+                              >
+                                <PencilLine className="h-3 w-3" /> editou
+                              </span>
+                            )}
+                          </div>
                           <div className="text-xs text-zinc-500">{r.email}</div>
                           {r.status === 'erro' && r.error && (
                             <div className="mt-1 flex items-start gap-1 text-xs text-red-600 max-w-xs">
@@ -247,6 +337,11 @@ export default function ProcessoDetalhePage() {
                         </TableCell>
                         <TableCell className="hidden md:table-cell text-xs text-zinc-500 space-y-0.5">
                           <div>Form: {r.submittedAt ? formatDateBR(r.submittedAt) : '—'}</div>
+                          {r.editedAt && (
+                            <div className={hasUnseenEdit(r) ? 'text-amber-700 font-medium' : ''}>
+                              Editado: {new Date(r.editedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                            </div>
+                          )}
                           <div>Assinatura: {r.signedAt ? formatDateBR(r.signedAt) : '—'}</div>
                           <div>Pagamento: {r.paidAt ? formatDateBR(r.paidAt) : '—'}</div>
                         </TableCell>
@@ -332,6 +427,25 @@ export default function ProcessoDetalhePage() {
           </Card>
         </>
       )}
+
+      <Dialog open={confirmDelete} onOpenChange={(open) => !open && setConfirmDelete(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir processo?</DialogTitle>
+            <DialogDescription>
+              Isso apaga permanentemente "{process?.name}" e todos os dados das {total} pessoa(s) — formulários, contratos, pagamentos e logs associados. Não dá para desfazer.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={exclude} disabled={deleting}>
+              {deleting ? 'Excluindo…' : 'Excluir definitivamente'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!dataDialog} onOpenChange={(open) => !open && setDataDialog(null)}>
         <DialogContent>

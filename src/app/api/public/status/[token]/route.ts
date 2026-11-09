@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { fieldDef } from '@/lib/fields'
 import { isLinkExpired } from '@/lib/public-token'
+import { checkEditWindow } from '@/lib/edit-window'
 
 /** Página de status e segunda via (vista da pessoa). */
 export async function GET(_request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
@@ -15,6 +16,9 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ token:
   } catch {
     formData = {}
   }
+
+  const window = checkEditWindow(r.process.referenceDate)
+  const canEdit = !!r.submittedAt && !!r.formData && window.allowed && r.status !== 'pago'
 
   return NextResponse.json({
     name: r.name,
@@ -32,6 +36,8 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ token:
     paymentUrl: r.paymentUrl,
     hasSignedPdf: !!r.signedPdfB64,
     adminSigned: r.adminSigned,
+    editedAt: r.editedAt,
+    canEdit,
     formFields: Object.entries(formData)
       .filter(([k]) => fieldDef(k))
       .map(([k, v]) => ({ label: fieldDef(k)?.label || k, value: v })),

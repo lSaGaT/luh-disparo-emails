@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { CheckCircle2, Loader2, FileSignature } from 'lucide-react'
 import Link from 'next/link'
@@ -10,8 +10,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { applyMask } from '@/lib/format'
+import { PublicLayout } from '@/components/public-layout'
 
-type FieldInfo = { key: string; label: string; type: string; placeholder: string; mask: string | null }
+type FieldInfo = { key: string; label: string; type: string; placeholder: string; mask: string | null; optional: boolean }
 type FormInfo = { processName: string; referenceDate: string; recipientName: string; email: string; alreadySubmitted: boolean; fields: FieldInfo[] }
 
 export default function FormularioPage() {
@@ -24,6 +25,8 @@ export default function FormularioPage() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
+  const [cepStatus, setCepStatus] = useState<'' | 'buscando' | 'ok' | 'erro'>('')
+  const lastCepRef = useRef('')
 
   useEffect(() => {
     void (async () => {
@@ -39,26 +42,42 @@ export default function FormularioPage() {
   }, [token])
 
   const setField = (key: string, mask: string | null, value: string) => {
-    setValues((prev) => ({ ...prev, [key]: mask ? applyMask(value, mask as 'cpf' | 'cep' | 'tel') : value }))
+    const masked = mask ? applyMask(value, mask as 'cpf' | 'cep' | 'tel') : value
+    setValues((prev) => ({ ...prev, [key]: masked }))
+    if (key === 'cep' && mask === 'cep') {
+      const digits = masked.replace(/\D/g, '')
+      if (digits.length === 8) void lookupCep(digits)
+      else if (digits.length < 8) {
+        setCepStatus('')
+        lastCepRef.current = ''
+      }
+    }
   }
 
-  const lookupCep = async (cep: string) => {
-    const digits = cep.replace(/\D/g, '')
-    if (digits.length !== 8) return
+  /** Consulta o CEP na BrasilAPI (com fallback entre providers) e preenche
+   * rua/bairro/cidade/estado somente se ainda estiverem vazios. */
+  const lookupCep = async (digits: string) => {
+    if (digits.length !== 8 || lastCepRef.current === digits) return
+    lastCepRef.current = digits
+    setCepStatus('buscando')
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
-      if (!res.ok) return
-      const data = await res.json()
-      if (data.erro) return
+      const ctrl = new AbortController()
+      const timeout = setTimeout(() => ctrl.abort(), 8000)
+      const res = await fetch(`https://brasilapi.com.br/api/cep/v1/${digits}`, { signal: ctrl.signal })
+      clearTimeout(timeout)
+      if (!res.ok) throw new Error(String(res.status))
+      const data = (await res.json()) as { street?: string | null; neighborhood?: string | null; city?: string; state?: string }
+      if (!data.city) throw new Error('sem dados')
       setValues((prev) => ({
         ...prev,
-        ...(data.logradouro ? { rua: prev.rua || data.logradouro } : {}),
-        ...(data.bairro ? { bairro: prev.bairro || data.bairro } : {}),
-        ...(data.localidade ? { cidade: prev.cidade || data.localidade } : {}),
-        ...(data.uf ? { estado: prev.estado || data.uf } : {}),
+        ...(data.street ? { rua: prev.rua || data.street! } : {}),
+        ...(data.neighborhood ? { bairro: prev.bairro || data.neighborhood! } : {}),
+        ...(data.city ? { cidade: prev.cidade || data.city } : {}),
+        ...(data.state ? { estado: prev.estado || data.state } : {}),
       }))
+      setCepStatus('ok')
     } catch {
-      // sem preenchimento automático
+      setCepStatus('erro')
     }
   }
 
@@ -158,10 +177,17 @@ export default function FormularioPage() {
                     placeholder={f.placeholder}
                     value={values[f.key] || ''}
                     onChange={(e) => setField(f.key, f.mask, e.target.value)}
-                    onBlur={f.key === 'cep' ? () => lookupCep(values.cep || '') : undefined}
-                    required
+                    onBlur={f.key === 'cep' ? () => lookupCep((values.cep || '').replace(/\D/g, '')) : undefined}
+                    required={!f.optional}
                     maxLength={f.type === 'date' ? undefined : 120}
                   />
+                  {f.key === 'cep' && cepStatus && (
+                    <p className={`text-xs ${cepStatus === 'ok' ? 'text-emerald-600' : cepStatus === 'erro' ? 'text-amber-600' : 'text-zinc-400'}`}>
+                      {cepStatus === 'buscando' && 'Buscando endereço…'}
+                      {cepStatus === 'ok' && 'Rua, bairro, cidade e estado preenchidos automaticamente — confira e complete o que faltar.'}
+                      {cepStatus === 'erro' && 'Não encontramos este CEP — preencha o endereço manualmente.'}
+                    </p>
+                  )}
                 </div>
               )
             )}
@@ -184,22 +210,5 @@ export default function FormularioPage() {
         </CardContent>
       </Card>
     </PublicLayout>
-  )
-}
-
-export function PublicLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen flex flex-col bg-zinc-50">
-      <header className="border-b bg-white">
-        <div className="mx-auto max-w-2xl px-4 h-14 flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-semibold">CD</span>
-          <span className="font-semibold text-zinc-900">Central de Documentos</span>
-        </div>
-      </header>
-      <main className="flex-1 mx-auto w-full max-w-2xl px-4 py-8">{children}</main>
-      <footer className="mt-auto border-t bg-white py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        <p className="text-center text-xs text-zinc-400">Formulário seguro — seus dados são usados apenas para a geração do contrato.</p>
-      </footer>
-    </div>
   )
 }

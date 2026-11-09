@@ -3,6 +3,7 @@ import { getSettings } from '@/lib/settings'
 import {
   stepDispatchForm,
   stepCreateContract,
+  stepBackfillSignLink,
   stepCreatePayment,
   pollAutentique,
   pollAsaas,
@@ -23,6 +24,8 @@ type QueueState = {
   lastAsaasPoll: number
   lastRetentionAt: number
   intervalStarted: boolean
+  catchUpDone: boolean
+  timer?: ReturnType<typeof setInterval>
 }
 
 const RETENTION_DAYS = 90
@@ -39,6 +42,7 @@ function state(): QueueState {
       lastAsaasPoll: 0,
       lastRetentionAt: 0,
       intervalStarted: false,
+      catchUpDone: false,
     }
   }
   return globalForQueue.__queueState
@@ -54,11 +58,47 @@ export function getLastTick() {
   return lastTickResult
 }
 
+/** Estados que ainda exigem ação da fila. 'pago' é o único fim de linha;
+ * erros de outras etapas esperam ação manual e não mantêm a fila viva. */
+async function hasPendingWork(): Promise<boolean> {
+  const c = await db.recipient.count({
+    where: {
+      OR: [
+        { status: 'fila' },
+        { status: 'form_recebido' },
+        { status: 'contrato_enviado' },
+        { status: 'assinado' },
+        { status: 'pagamento_enviado' },
+        { status: 'erro', stage: 'contract' },
+      ],
+    },
+  })
+  return c > 0
+}
+
+/** Desliga o timer da fila; a próxima requisição autenticada religa sozinha
+ * (ensureQueueInterval roda a cada requisição servida). */
+function stopInterval(): void {
+  const s = state()
+  if (s.timer) {
+    clearInterval(s.timer)
+    s.timer = undefined
+  }
+  s.intervalStarted = false
+}
+
 export async function tick(): Promise<void> {
   const s = state()
   if (s.running) return
   s.running = true
   try {
+    // nada pendente: fila desligada (religa sozinha quando surgir trabalho)
+    if (!(await hasPendingWork())) {
+      stopInterval()
+      lastTickResult = { at: Date.now(), action: 'ociosa', detail: 'sem pendências' }
+      return
+    }
+
     const settings = await getSettings()
     const now = Date.now()
 
@@ -87,6 +127,22 @@ export async function tick(): Promise<void> {
       return
     }
 
+    // 2.5) link de assinatura pendente (Autentique gera o short_link de forma
+    // assíncrona — quando chegar, grava, normaliza o falso erro e dispara o
+    // e-mail). Só consome o tick se agiu; senão segue para as próximas etapas.
+    const pendingLink = await db.recipient.findFirst({
+      where: {
+        autentiqueDocId: { not: null },
+        signUrl: null,
+        OR: [{ status: 'contrato_enviado' }, { status: 'erro', stage: 'contract' }],
+      },
+      orderBy: { contractSentAt: 'asc' },
+    })
+    if (pendingLink && (await stepBackfillSignLink(pendingLink.id))) {
+      lastTickResult = { at: Date.now(), action: 'link_assinatura', detail: pendingLink.name }
+      return
+    }
+
     // 3) contratos assinados aguardando cobrança
     const pendingPayment = await db.recipient.findFirst({
       where: { status: 'assinado' },
@@ -98,10 +154,16 @@ export async function tick(): Promise<void> {
       return
     }
 
-    // 4) sondagem Autentique (fallback do webhook)
+    // 4) sondagem Autentique (fallback do webhook) — cobre os mesmos estados
+    // que o pollAutentique trata, inclusive erros de contrato
     if (now - s.lastAutentiquePoll >= settings.pollMinutes * 60 * 1000) {
       s.lastAutentiquePoll = now
-      const hasPending = await db.recipient.count({ where: { status: 'contrato_enviado', autentiqueDocId: { not: null } } })
+      const hasPending = await db.recipient.count({
+        where: {
+          autentiqueDocId: { not: null },
+          OR: [{ status: 'contrato_enviado' }, { status: 'erro', stage: 'contract' }],
+        },
+      })
       if (hasPending > 0) {
         await pollAutentique()
         lastTickResult = { at: Date.now(), action: 'sondagem_autentique', detail: `${hasPending} aguardando assinatura` }
@@ -155,4 +217,28 @@ export function ensureQueueInterval(): void {
   }, 10_000)
   // não segura o processo
   if (typeof timer.unref === 'function') timer.unref()
+  s.timer = timer
+}
+
+/** Varredura de abertura ("captura"): o sistema pode ficar horas desligado
+ * (rotina da operadora — liga de manhã, desliga à noite). Ao subir, consulta
+ * Autentique e Asaas imediatamente para reconhecer assinaturas e pagamentos
+ * que aconteceram no intervalo desligado, e religa o ciclo da fila. Roda
+ * algumas rodadas porque cada sondagem processa em lote; o restante segue no
+ * ritmo normal. Chamado pelo instrumentation no boot do servidor. */
+export async function catchUp(): Promise<void> {
+  const s = state()
+  if (s.catchUpDone) return
+  s.catchUpDone = true
+  if (!(await hasPendingWork().catch(() => false))) {
+    lastTickResult = { at: Date.now(), action: 'ociosa', detail: 'abertura sem pendências' }
+    return
+  }
+  ensureQueueInterval()
+  for (let i = 0; i < 5; i++) {
+    await pollAutentique().catch(() => undefined)
+    await pollAsaas().catch(() => undefined)
+    await new Promise((r) => setTimeout(r, 1500))
+  }
+  lastTickResult = { at: Date.now(), action: 'captura', detail: 'varredura de abertura concluída' }
 }

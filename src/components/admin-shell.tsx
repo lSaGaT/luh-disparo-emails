@@ -24,13 +24,15 @@ export function AdminShell({
   const pathname = usePathname()
   const router = useRouter()
 
-  // mantém a fila rodando enquanto o painel está aberto
+  // Batimento do painel: religa a fila se ela se desligou por ociosidade e
+  // garante ticks mesmo se o intervalo interno morrer (HMR). O trabalho pesado
+  // é do intervalo interno (10s); 30s aqui basta para acordar o sistema.
   useEffect(() => {
     const ping = () => {
       void fetch('/api/admin/queue/tick', { method: 'POST' }).catch(() => undefined)
     }
     ping()
-    const timer = setInterval(ping, 6000)
+    const timer = setInterval(ping, 30_000)
     return () => clearInterval(timer)
   }, [])
 

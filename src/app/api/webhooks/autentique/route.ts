@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getSettings } from '@/lib/settings'
@@ -8,8 +9,37 @@ import { stepFinalizeSignature } from '@/lib/pipeline'
  * totalmente assinado, dispara a finalização (cópia + cobrança).
  * Configure a URL nas configurações de webhook do painel da Autentique.
  */
+
+/** HMAC-SHA256 hex do corpo bruto no header x-autentique-signature (docs da
+ * Autentique); comparação em tempo constante. Suporta prefixo "sha256=". */
+function hmacValid(raw: string, secret: string, signature: string | null): boolean {
+  if (!signature) return false
+  const received = signature.trim().toLowerCase().replace(/^sha256=/, '')
+  const calc = crypto.createHmac('sha256', secret).update(raw).digest('hex')
+  const a = Buffer.from(calc, 'hex')
+  const b = Buffer.from(received, 'hex')
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
 export async function POST(request: NextRequest) {
   const raw = await request.text()
+
+  // defesa: se houver segredo configurado, só entrega assinada pela Autentique
+  // passa. Vários webhooks no painel = vários segredos (vírgula ou espaço).
+  // Sem segredo configurado, segue sem verificação — a rota reconfirma tudo
+  // pela API da Autentique antes de agir, então payload falso não causa nada.
+  const settings = await getSettings()
+  const secrets = (settings.autentiqueWebhookSecret || '').split(/[\s,;]+/).filter(Boolean)
+  if (secrets.length > 0) {
+    const signature = request.headers.get('x-autentique-signature')
+    if (!secrets.some((secret) => hmacValid(raw, secret, signature))) {
+      await db.webhookLog.create({
+        data: { source: 'autentique', body: raw.slice(0, 1000), handled: false, note: 'rejeitado: assinatura HMAC inválida' },
+      })
+      return NextResponse.json({ error: 'assinatura inválida' }, { status: 401 })
+    }
+  }
+
   let payload: Record<string, unknown> | null = null
   try {
     payload = JSON.parse(raw)
@@ -51,7 +81,6 @@ export async function POST(request: NextRequest) {
   }
 
   // confere com a API antes de finalizar (evita depender só do payload)
-  const settings = await getSettings()
   if (settings.autentiqueToken) {
     try {
       const { getDocument } = await import('@/lib/autentique')

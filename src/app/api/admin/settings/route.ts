@@ -10,6 +10,7 @@ function maskSettings(s: AppSettings): AppSettings {
     ...s,
     ...(s.smtpPass ? { smtpPass: MASK } : {}),
     ...(s.autentiqueToken ? { autentiqueToken: MASK } : {}),
+    ...(s.autentiqueWebhookSecret ? { autentiqueWebhookSecret: MASK } : {}),
     ...(s.asaasApiKey ? { asaasApiKey: MASK } : {}),
   }
 }
@@ -34,6 +35,7 @@ export async function PUT(request: NextRequest) {
     'smtpPass',
     'smtpFromName',
     'autentiqueToken',
+    'autentiqueWebhookSecret',
     'adminSignerName',
     'adminSignerEmail',
     'adminSignerCpf',
@@ -67,7 +69,7 @@ export async function PUT(request: NextRequest) {
     } else {
       const v = String(body[key] ?? '')
       // máscara recebida de volta = admin não alterou o segredo: manter atual
-      if ((key === 'smtpPass' || key === 'autentiqueToken' || key === 'asaasApiKey') && v === MASK) continue
+      if ((key === 'smtpPass' || key === 'autentiqueToken' || key === 'autentiqueWebhookSecret' || key === 'asaasApiKey') && v === MASK) continue
       ;(data as Record<string, unknown>)[key] = v.trim() || null
     }
   }

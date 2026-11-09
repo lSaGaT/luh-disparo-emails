@@ -8,6 +8,7 @@ export type AppSettings = {
   smtpPass: string | null
   smtpFromName: string
   autentiqueToken: string | null
+  autentiqueWebhookSecret: string | null
   adminSignerName: string | null
   adminSignerEmail: string | null
   adminSignerCpf: string | null
@@ -31,6 +32,7 @@ export async function getSettings(): Promise<AppSettings> {
     smtpPass: s.smtpPass,
     smtpFromName: s.smtpFromName,
     autentiqueToken: s.autentiqueToken,
+    autentiqueWebhookSecret: s.autentiqueWebhookSecret,
     adminSignerName: s.adminSignerName,
     adminSignerEmail: s.adminSignerEmail,
     adminSignerCpf: s.adminSignerCpf,

@@ -28,6 +28,7 @@ model Settings {
   smtpFromName      String   @default("Central de Documentos")
   // Autentique
   autentiqueToken   String?
+  autentiqueWebhookSecret String? // segredo(s) HMAC do webhook (gerados no painel); separados por vírgula
   // Dados do assinante administrador (dono do sistema)
   adminSignerName   String?
   adminSignerEmail  String?
@@ -70,6 +71,10 @@ model Recipient {
   // formulário
   formData        String? // JSON com os campos preenchidos
   submittedAt     DateTime?
+  // edição pós-envio: pessoa corrige dados pela página de acompanhamento;
+  // editedAt acende o alerta no painel até o admin marcar como visto
+  editedAt        DateTime?
+  editSeenAt      DateTime?
   // Autentique
   autentiqueDocId String?
   signUrl         String?

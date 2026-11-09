@@ -12,10 +12,17 @@ export async function POST(request: NextRequest) {
   const email = String(body?.email || '').trim().toLowerCase()
   const password = String(body?.password || '')
 
-  // brute force: 5 tentativas por IP+email a cada 15 minutos
+  // brute force: 5 tentativas a cada 15 minutos, em DOIS balcões — IP+email e
+  // email sozinho. O x-forwarded-for é forjável quando o app não está atrás de
+  // proxy confiável (rotacionar o header criaria balcões novos); o balcão por
+  // conta garante que rotação de IP não libera força bruta no mesmo login.
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'local'
-  const rl = rateLimitHit(`login:${ip}:${email}`, MAX_ATTEMPTS, WINDOW_MS)
-  if (rl.blocked) {
+  const attempts = [
+    rateLimitHit(`login:${ip}:${email}`, MAX_ATTEMPTS, WINDOW_MS),
+    rateLimitHit(`login:conta:${email}`, MAX_ATTEMPTS, WINDOW_MS),
+  ]
+  const rl = attempts.find((a) => a.blocked)
+  if (rl) {
     return NextResponse.json(
       { error: `Muitas tentativas. Tente novamente em ${Math.ceil(rl.retryAfterSec / 60)} minuto(s).` },
       { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { FileText, Save, Plus } from 'lucide-react'
+import { FileText, Save, Plus, Eye } from 'lucide-react'
 import { AdminShell } from '@/components/admin-shell'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import { TEMPLATE_VARIABLES } from '@/lib/fields'
 export default function ModeloPage() {
   const [template, setTemplate] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
 
   useEffect(() => {
     void (async () => {
@@ -38,6 +39,31 @@ export default function ModeloPage() {
     }
   }
 
+  /** Modo visualização: renderiza o texto atual (mesmo sem salvar) no papel timbrado. */
+  const preview = async () => {
+    setPreviewing(true)
+    try {
+      const res = await fetch('/api/admin/template/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        toast.error(data?.error || 'Não foi possível gerar o preview.')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch {
+      toast.error('Não foi possível gerar o preview.')
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
   const insertVariable = (key: string) => {
     if (template === null) return
     setTemplate(`${template}{{${key}}}`)
@@ -58,7 +84,7 @@ export default function ModeloPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">Texto do contrato</CardTitle>
-            <CardDescription>O bloco de assinaturas (cliente + administrador) e a lista de dados declarados são adicionados automaticamente ao final do PDF.</CardDescription>
+            <CardDescription>O PDF sai no papel timbrado (logo no topo e rodapé com paginação). O bloco de assinaturas e a lista de dados declarados são adicionados automaticamente ao final.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {template === null ? (
@@ -66,9 +92,14 @@ export default function ModeloPage() {
             ) : (
               <Textarea value={template} onChange={(e) => setTemplate(e.target.value)} rows={22} className="font-mono text-xs leading-relaxed" />
             )}
-            <Button onClick={save} disabled={saving || template === null}>
-              <Save className="mr-1.5 h-4 w-4" /> {saving ? 'Salvando…' : 'Salvar modelo'}
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={save} disabled={saving || template === null}>
+                <Save className="mr-1.5 h-4 w-4" /> {saving ? 'Salvando…' : 'Salvar modelo'}
+              </Button>
+              <Button variant="outline" onClick={preview} disabled={previewing || template === null || !template.trim()}>
+                <Eye className="mr-1.5 h-4 w-4" /> {previewing ? 'Gerando…' : 'Visualizar timbrado'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

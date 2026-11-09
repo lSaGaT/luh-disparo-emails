@@ -12,12 +12,17 @@ export type FieldKey =
   | 'telefone'
   | 'email'
   | 'data_nascimento'
+  | 'cep'
   | 'rua'
   | 'numero'
+  | 'complemento'
   | 'bairro'
   | 'cidade'
-  | 'cep'
   | 'estado'
+  | 'nome_aluno'
+  | 'turma'
+  | 'serie'
+  | 'altura'
 
 export type FieldType = 'text' | 'email' | 'date' | 'tel'
 
@@ -29,9 +34,14 @@ export type FieldDef = {
   mask?: 'cpf' | 'cep' | 'tel'
   alwaysOn: boolean
   toggleable: boolean
+  /** undefined/false = obrigatório; true opcional (ex.: complemento). */
+  optional?: boolean
 }
 
+/** Ordem de exibição no formulário público: CEP primeiro — o preenchimento
+ * automático de rua/bairro/cidade/estado acontece logo no início. */
 export const ALL_FIELDS: FieldDef[] = [
+  { key: 'cep', label: 'CEP', type: 'text', placeholder: '00000-000', mask: 'cep', alwaysOn: false, toggleable: true },
   { key: 'nome_completo', label: 'Nome completo', type: 'text', placeholder: 'Como no documento', alwaysOn: true, toggleable: false },
   { key: 'cpf', label: 'CPF', type: 'text', placeholder: '000.000.000-00', mask: 'cpf', alwaysOn: true, toggleable: false },
   { key: 'email', label: 'E-mail', type: 'email', placeholder: 'voce@email.com', alwaysOn: true, toggleable: false },
@@ -39,11 +49,15 @@ export const ALL_FIELDS: FieldDef[] = [
   { key: 'telefone', label: 'Telefone / WhatsApp', type: 'tel', placeholder: '(00) 00000-0000', mask: 'tel', alwaysOn: false, toggleable: true },
   { key: 'data_nascimento', label: 'Data de nascimento', type: 'date', alwaysOn: false, toggleable: true },
   { key: 'rua', label: 'Rua / Avenida', type: 'text', placeholder: 'Logradouro', alwaysOn: false, toggleable: true },
-  { key: 'numero', label: 'Número', type: 'text', placeholder: 'Nº e complemento', alwaysOn: false, toggleable: true },
+  { key: 'numero', label: 'Número', type: 'text', placeholder: 'Nº', alwaysOn: false, toggleable: true },
+  { key: 'complemento', label: 'Complemento', type: 'text', placeholder: 'Apto, bloco, casa… (opcional)', alwaysOn: false, toggleable: true, optional: true },
   { key: 'bairro', label: 'Bairro', type: 'text', placeholder: 'Bairro', alwaysOn: false, toggleable: true },
   { key: 'cidade', label: 'Cidade', type: 'text', placeholder: 'Cidade', alwaysOn: false, toggleable: true },
-  { key: 'cep', label: 'CEP', type: 'text', placeholder: '00000-000', mask: 'cep', alwaysOn: false, toggleable: true },
   { key: 'estado', label: 'Estado', type: 'text', placeholder: 'UF (ex.: SP)', alwaysOn: false, toggleable: true },
+  { key: 'nome_aluno', label: 'Nome do aluno(a)', type: 'text', placeholder: 'Nome completo do aluno(a)', alwaysOn: false, toggleable: true },
+  { key: 'turma', label: 'Turma', type: 'text', placeholder: 'Ex.: 9º A', alwaysOn: false, toggleable: true },
+  { key: 'serie', label: 'Série', type: 'text', placeholder: 'Ex.: 9º ano', alwaysOn: false, toggleable: true },
+  { key: 'altura', label: 'Altura', type: 'text', placeholder: 'Ex.: 1,65 m', alwaysOn: false, toggleable: true },
 ]
 
 export const DEFAULT_ENABLED_FIELDS: FieldKey[] = [
@@ -53,12 +67,17 @@ export const DEFAULT_ENABLED_FIELDS: FieldKey[] = [
   'rg',
   'telefone',
   'data_nascimento',
+  'cep',
   'rua',
   'numero',
+  'complemento',
   'bairro',
   'cidade',
-  'cep',
   'estado',
+  'nome_aluno',
+  'turma',
+  'serie',
+  'altura',
 ]
 
 export function fieldDef(key: string): FieldDef | undefined {
@@ -86,10 +105,15 @@ export const TEMPLATE_VARIABLES: { key: string; label: string }[] = [
   { key: 'data_nascimento', label: 'Data de nascimento' },
   { key: 'rua', label: 'Rua / Avenida' },
   { key: 'numero', label: 'Número' },
+  { key: 'complemento', label: 'Complemento' },
   { key: 'bairro', label: 'Bairro' },
   { key: 'cidade', label: 'Cidade' },
   { key: 'cep', label: 'CEP' },
   { key: 'estado', label: 'Estado' },
+  { key: 'nome_aluno', label: 'Nome do aluno(a)' },
+  { key: 'turma', label: 'Turma' },
+  { key: 'serie', label: 'Série' },
+  { key: 'altura', label: 'Altura' },
   { key: 'processo_nome', label: 'Nome do processo' },
   { key: 'data_referencia', label: 'Data de referência do processo' },
   { key: 'valor', label: 'Valor da cobrança' },
@@ -102,7 +126,7 @@ PROCESSO: {{processo_nome}} — Referência: {{data_referencia}}
 
 IDENTIFICAÇÃO DAS PARTES
 
-CONTRATANTE: {{nome_completo}}, portador(a) do CPF nº {{cpf}}{{rg_campo}}{{telefone_campo}}{{nascimento_campo}}, residente e domiciliado(a) em {{rua}}, nº {{numero}}, bairro {{bairro}}, CEP {{cep}}, cidade de {{cidade}}/{{estado}}, e-mail {{email}}.
+CONTRATANTE: {{nome_completo}}, portador(a) do CPF nº {{cpf}}{{rg_campo}}{{telefone_campo}}{{nascimento_campo}}, residente e domiciliado(a) em {{rua}}, nº {{numero}}{{complemento_campo}}, bairro {{bairro}}, CEP {{cep}}, cidade de {{cidade}}/{{estado}}, e-mail {{email}}.
 
 CONTRATADO: o administrador desta plataforma, com sede no endereço informado no rodapé deste documento.
 

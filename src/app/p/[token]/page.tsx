@@ -13,10 +13,14 @@ import {
   Mail,
   Clock,
   AlertTriangle,
+  PencilLine,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { applyMask } from '@/lib/format'
 
 type StatusData = {
   name: string
@@ -34,8 +38,13 @@ type StatusData = {
   paymentUrl: string | null
   hasSignedPdf: boolean
   adminSigned: boolean
+  editedAt: string | null
+  canEdit: boolean
   formFields: { label: string; value: string }[]
 }
+
+type EditField = { key: string; label: string; type: string; placeholder: string; mask: string | null; optional: boolean }
+type EditData = { canEdit: boolean; daysLeft: number; fields: EditField[]; values: Record<string, string> }
 
 const fmt = (v: string | null) =>
   v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : null
@@ -45,20 +54,72 @@ export default function StatusPessoaPage() {
   const token = params.token
   const [data, setData] = useState<StatusData | null>(null)
   const [notFound, setNotFound] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editData, setEditData] = useState<EditData | null>(null)
+  const [editValues, setEditValues] = useState<Record<string, string>>({})
+  const [editError, setEditError] = useState('')
+  const [editMsg, setEditMsg] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  const load = async () => {
+    const res = await fetch(`/api/public/status/${token}`)
+    if (!res.ok) {
+      setNotFound(true)
+      return
+    }
+    setData(await res.json())
+  }
 
   useEffect(() => {
-    const load = async () => {
-      const res = await fetch(`/api/public/status/${token}`)
-      if (!res.ok) {
-        setNotFound(true)
-        return
-      }
-      setData(await res.json())
-    }
     void load()
     const timer = setInterval(load, 15000)
     return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
+
+  const startEdit = async () => {
+    setEditing(true)
+    setEditError('')
+    setEditMsg('')
+    const res = await fetch(`/api/public/form/${token}/edit`)
+    if (!res.ok) {
+      const d = await res.json().catch(() => null)
+      setEditError(d?.error || 'Não foi possível carregar seus dados.')
+      setEditing(false)
+      return
+    }
+    const d = (await res.json()) as EditData
+    setEditData(d)
+    setEditValues(d.values || {})
+  }
+
+  const setField = (key: string, mask: string | null, value: string) => {
+    setEditValues((prev) => ({ ...prev, [key]: mask ? applyMask(value, mask as 'cpf' | 'cep' | 'tel') : value }))
+  }
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setEditError('')
+    setSavingEdit(true)
+    try {
+      const res = await fetch(`/api/public/form/${token}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: editValues }),
+      })
+      const d = await res.json()
+      if (!res.ok) {
+        setEditError(d.error || 'Não foi possível salvar.')
+        return
+      }
+      setEditMsg('Dados atualizados! O responsável pelo processo será avisado da alteração.')
+      setEditing(false)
+      setEditData(null)
+      void load()
+    } finally {
+      setSavingEdit(false)
+    }
+  }
 
   if (notFound) {
     return (
@@ -181,7 +242,10 @@ export default function StatusPessoaPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Meus dados informados</CardTitle>
-            <CardDescription>Dados que você preencheu no formulário.</CardDescription>
+            <CardDescription>
+              Dados que você preencheu no formulário.
+              {data.editedAt ? ` Última edição: ${fmt(data.editedAt)}.` : ''}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="divide-y text-sm">
@@ -193,7 +257,64 @@ export default function StatusPessoaPage() {
               ))}
             </ul>
             <Separator className="my-3" />
-            <p className="text-xs text-zinc-400">Precisa corrigir algo? Fale com o responsável pelo processo.</p>
+            {editing ? (
+              editData ? (
+                <form onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2">
+                  <p className="text-sm text-zinc-500 sm:col-span-2">Corrija os campos necessários e salve. O responsável será avisado da edição.</p>
+                  {editData.fields.map((f) =>
+                    f.key === 'email' ? null : (
+                      <div key={f.key} className="space-y-1.5">
+                        <Label htmlFor={`edit-${f.key}`}>{f.label}</Label>
+                        <Input
+                          id={`edit-${f.key}`}
+                          type={f.type}
+                          placeholder={f.placeholder}
+                          value={editValues[f.key] || ''}
+                          onChange={(e) => setField(f.key, f.mask, e.target.value)}
+                          required={!f.optional}
+                          maxLength={f.type === 'date' ? undefined : 120}
+                        />
+                      </div>
+                    )
+                  )}
+                  {editError && <p className="text-sm text-red-600 sm:col-span-2">{editError}</p>}
+                  <div className="flex gap-2 sm:col-span-2">
+                    <Button type="submit" disabled={savingEdit}>
+                      {savingEdit ? 'Salvando…' : 'Salvar alterações'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setEditing(false)
+                        setEditData(null)
+                        setEditError('')
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="text-sm text-zinc-400">
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando seus dados…
+                </div>
+              )
+            ) : data.canEdit ? (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <Button variant="outline" size="sm" onClick={startEdit}>
+                  <PencilLine className="mr-1 h-4 w-4" /> Editar meus dados
+                </Button>
+                <p className="text-xs text-zinc-400">Disponível até 3 dias antes do evento ({data.referenceDate.split('-').reverse().join('/')}).</p>
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-400">
+                {data.status === 'pago'
+                  ? 'Processo concluído — não é mais possível editar os dados.'
+                  : 'O prazo de edição (até 3 dias antes do evento) já encerrou. Precisa corrigir algo? Fale com o responsável pelo processo.'}
+              </p>
+            )}
+            {editMsg && <p className="mt-3 text-sm text-emerald-700">{editMsg}</p>}
           </CardContent>
         </Card>
       )}

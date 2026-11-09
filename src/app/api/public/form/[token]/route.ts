@@ -25,6 +25,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ token:
     type: f.type,
     placeholder: f.placeholder || '',
     mask: f.mask || null,
+    optional: f.optional === true,
   }))
 
   return NextResponse.json({
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
       .replace(/\s*\r?\n+\s*/g, ' ')
       .trim()
       .slice(0, MAX_FIELD_LENGTH)
-    if (!value) {
+    if (!value && !def.optional) {
       await restoreStatus()
       return NextResponse.json({ error: `Preencha o campo "${def.label}".` }, { status: 400 })
     }

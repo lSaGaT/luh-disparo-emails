@@ -1,6 +1,7 @@
+import { PDFDocument } from 'pdf-lib'
 import { db } from '@/lib/db'
 import { getSettings } from '@/lib/settings'
-import { renderContractPdf, buildContractData } from '@/lib/contract'
+import { renderContractPdf, buildContractData, contractSignaturePositions } from '@/lib/contract'
 import * as autentique from '@/lib/autentique'
 import * as asaas from '@/lib/asaas'
 import {
@@ -67,10 +68,19 @@ export async function stepCreateContract(recipientId: string): Promise<void> {
       data: { status: 'contrato_enviado', stage: null, error: null },
     })
     if (claimed.count !== 1) return
+    let signUrl = recipient.signUrl
+    if (!signUrl) {
+      const settings = await getSettings()
+      if (!settings.autentiqueToken) throw new Error('Token da Autentique não configurado (Configurações).')
+      signUrl = await fetchSignUrl(settings.autentiqueToken, recipient.autentiqueDocId, recipient.email)
+      if (signUrl) {
+        await db.recipient.update({ where: { id: recipient.id }, data: { signUrl } })
+      }
+    }
     await emailSignLink({
       name: recipient.name,
       email: recipient.email,
-      signUrl: recipient.signUrl,
+      signUrl,
       processName: recipient.process.name,
     })
     return
@@ -92,12 +102,17 @@ export async function stepCreateContract(recipientId: string): Promise<void> {
     const template = settings.contractTemplate
     const pdf = await renderContractPdf(template, data)
 
+    // posições para a Autentique carimbar a assinatura sobre o bloco e a
+    // rubrica nas páginas anteriores (sem isso, só sai na página de auditoria)
+    const pageCount = (await PDFDocument.load(pdf)).getPageCount()
+    const pos = contractSignaturePositions(pageCount)
+
     const doc = await autentique.createDocument(settings.autentiqueToken, {
       name: `Contrato - ${recipient.name} (${recipient.process.name})`,
       pdf,
       signers: [
-        { email: recipient.email, action: 'SIGN', name: recipient.name },
-        { email: settings.adminSignerEmail, action: 'SIGN', name: settings.adminSignerName, ...(settings.adminSignerCpf ? { cpf: settings.adminSignerCpf } : {}) },
+        { email: recipient.email, action: 'SIGN', name: recipient.name, positions: [...pos.contratante.rubricas, pos.contratante.assinatura] },
+        { email: settings.adminSignerEmail, action: 'SIGN', name: settings.adminSignerName, ...(settings.adminSignerCpf ? { configs: { cpf: settings.adminSignerCpf } } : {}), positions: [...pos.contratado.rubricas, pos.contratado.assinatura] },
       ],
     })
 
@@ -111,7 +126,13 @@ export async function stepCreateContract(recipientId: string): Promise<void> {
     }
 
     const personSig = doc.signatures.find((s) => s.email.toLowerCase() === recipient.email.toLowerCase())
-    const signUrl = personSig?.link?.short_link || null
+    let signUrl = personSig?.link?.short_link || null
+    // a Autentique gera o short_link de forma assíncrona: reconsulta por alguns
+    // segundos antes de seguir sem o link (a fila preenche depois — etapa 2b)
+    for (let i = 0; i < 3 && !signUrl; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      signUrl = await fetchSignUrl(settings.autentiqueToken, doc.id, recipient.email)
+    }
 
     await db.recipient.update({
       where: { id: recipient.id },
@@ -127,6 +148,12 @@ export async function stepCreateContract(recipientId: string): Promise<void> {
       },
     })
 
+    // link ainda não ficou pronto: NÃO é erro — o documento existe e a fila
+    // busca o link e dispara o e-mail assim que a Autentique o gerar. A
+    // Autentique também envia o link por conta própria (comportamento deles,
+    // não desligável pela API), então a pessoa nunca fica sem acesso.
+    if (!signUrl) return
+
     const emailResult = await emailSignLink({
       name: recipient.name,
       email: recipient.email,
@@ -137,6 +164,46 @@ export async function stepCreateContract(recipientId: string): Promise<void> {
   } catch (err) {
     await fail(recipient.id, 'contract', err)
   }
+}
+
+// ---------- etapa 2b: link de assinatura que ficou pendente na criação ----------
+
+/** A Autentique gera o short_link de forma assíncrona — pode não existir no
+ * momento da criação do documento. Quando a fila encontra um recipient com
+ * contrato criado e link vazio, reconsulta; aparecendo o link, grava e envia
+ * o e-mail de assinatura. Falha aqui não marca erro: o próximo tick tenta de novo. */
+/** Recupera recipients cujo contrato foi criado mas o short_link ainda não
+ * tinha chego na criação. Quando aparece, grava e envia o e-mail de assinatura.
+ * Retorna true apenas quando fez algo — a fila segue para as próximas etapas
+ * caso contrário (nunca consumir o tick à toa). */
+export async function stepBackfillSignLink(recipientId: string): Promise<boolean> {
+  const r = await getRecipientWithProcess(recipientId)
+  if (!r || !r.autentiqueDocId || r.signUrl) return false
+  const eligible = r.status === 'contrato_enviado' || (r.status === 'erro' && r.stage === 'contract')
+  if (!eligible) return false
+  const settings = await getSettings()
+  if (!settings.autentiqueToken) return false
+  // consulta completa (e não só o link): quando a pessoa assina, a Autentique
+  // ZERA o short_link — nesse caso o link deixou de ser necessário e a
+  // sondagem finaliza o fluxo
+  const doc = await autentique.getDocument(settings.autentiqueToken, r.autentiqueDocId)
+  const sig = doc.signatures.find((s) => (s.email || '').toLowerCase() === r.email.toLowerCase())
+  if (!sig || sig.signed) return false
+  const signUrl = sig.link?.short_link || null
+  if (!signUrl) return false
+  // veio do falso erro "Link de assinatura indisponível": normaliza o status
+  await db.recipient.updateMany({
+    where: { id: r.id, status: 'erro', stage: 'contract' },
+    data: { status: 'contrato_enviado', stage: null, error: null },
+  })
+  await db.recipient.update({ where: { id: r.id }, data: { signUrl } })
+  await emailSignLink({
+    name: r.name,
+    email: r.email,
+    signUrl,
+    processName: r.process.name,
+  }).catch(() => undefined) // e-mail falhou: link está salvo, reenvio manual cobre
+  return true
 }
 
 // ---------- etapa 3: pessoa assinou -> baixar cópia -> e-mail ----------
@@ -266,15 +333,35 @@ export async function stepMarkPaid(recipientId: string): Promise<void> {
   } catch {
     // e-mail de confirmação é informativo; não reverte o status pago
   }
+  // todos os destinatários do processo chegaram ao fim: marca como concluído
+  // (desliga o indicador de fila ativa)
+  const faltando = await db.recipient.count({ where: { processId: recipient.processId, status: { not: 'pago' } } })
+  if (faltando === 0) {
+    await db.process.updateMany({
+      where: { id: recipient.processId, status: { in: ['disparando', 'pausado'] } },
+      data: { status: 'concluido' },
+    })
+  }
 }
 
 // ---------- sondagem (fallback dos webhooks) ----------
+
+/** Link de assinatura da pessoa. A Autentique às vezes gera o short_link de
+ * forma assíncrona — a criação pode devolver link vazio; reconsulte o documento. */
+async function fetchSignUrl(token: string, docId: string, email: string): Promise<string | null> {
+  const doc = await autentique.getDocument(token, docId)
+  const sig = doc.signatures.find((s) => (s.email || '').toLowerCase() === email.toLowerCase())
+  return sig?.link?.short_link || null
+}
 
 export async function pollAutentique(): Promise<void> {
   const settings = await getSettings()
   if (!settings.autentiqueToken) return
   const pendings = await db.recipient.findMany({
-    where: { status: 'contrato_enviado', autentiqueDocId: { not: null } },
+    where: {
+      autentiqueDocId: { not: null },
+      OR: [{ status: 'contrato_enviado' }, { status: 'erro', stage: 'contract' }],
+    },
     take: 10,
     orderBy: { updatedAt: 'asc' },
   })
@@ -293,6 +380,12 @@ export async function pollAutentique(): Promise<void> {
       }
       const allSigned = doc.signatures.length > 0 && doc.signatures.every((s) => !!s.signed)
       if (allSigned || (doc.files && doc.files.signed)) {
+        // veio de erro (ex.: e-mail do contrato falhou, mas a pessoa assinou pelo
+        // link): normaliza para contrato_enviado antes de finalizar
+        await db.recipient.updateMany({
+          where: { id: r.id, status: 'erro', stage: 'contract' },
+          data: { status: 'contrato_enviado', stage: null, error: null },
+        })
         await stepFinalizeSignature(r.id)
       }
     } catch {
@@ -352,16 +445,26 @@ export async function retryRecipient(recipientId: string): Promise<{ ok: boolean
   }
 
   // ---- documento já criado: reenviar link de assinatura, não recriar doc ----
-  if (stage === 'contract' && r.autentiqueDocId && r.signUrl) {
+  if (stage === 'contract' && r.autentiqueDocId) {
     const claim = await db.recipient.updateMany({
       where: { id: r.id, status: 'erro', stage: 'contract' },
       data: { status: 'contrato_enviado', stage: null, error: null },
     })
     if (claim.count !== 1) return { ok: false, error: 'Estado mudou durante o retry; tente novamente' }
+    let signUrl = r.signUrl
+    if (!signUrl) {
+      const settings = await getSettings()
+      signUrl = settings.autentiqueToken
+        ? await fetchSignUrl(settings.autentiqueToken, r.autentiqueDocId, r.email)
+        : null
+      if (signUrl) {
+        await db.recipient.update({ where: { id: r.id }, data: { signUrl } })
+      }
+    }
     const result = await emailSignLink({
       name: r.name,
       email: r.email,
-      signUrl: r.signUrl,
+      signUrl,
       processName: r.process.name,
     })
     if (!result.ok) await fail(r.id, 'contract', result.error || 'Falha ao reenviar e-mail de assinatura')
