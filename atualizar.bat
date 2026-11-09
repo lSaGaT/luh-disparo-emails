@@ -76,7 +76,7 @@ rem ---------------------------------------------------------------
 rem [2/4] Dependencias (rapido se nada mudou)
 rem ---------------------------------------------------------------
 echo [2/4] Verificando dependencias...
-call npm install --no-audit --no-fund
+call npm install --no-audit --no-fund || call npm install --no-audit --no-fund --legacy-peer-deps
 if errorlevel 1 goto :deps_fail
 
 rem ---------------------------------------------------------------

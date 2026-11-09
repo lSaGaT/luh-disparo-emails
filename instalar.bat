@@ -79,9 +79,9 @@ rem [4/8] Dependencias
 rem ---------------------------------------------------------------
 echo [4/8] Instalando dependencias (pode demorar alguns minutos)...
 if exist package-lock.json (
-    call npm ci --no-audit --no-fund || call npm install --no-audit --no-fund
+    call npm ci --no-audit --no-fund || call npm install --no-audit --no-fund || call npm install --no-audit --no-fund --legacy-peer-deps
 ) else (
-    call npm install --no-audit --no-fund
+    call npm install --no-audit --no-fund --legacy-peer-deps
 )
 if errorlevel 1 goto :fail_deps
 
